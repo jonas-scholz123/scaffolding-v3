@@ -1,6 +1,7 @@
 {
   "venvPath": ".",
   "venv": ".venv",
+  "extraPaths": ["src/scaffolding_v3"],
   "reportMissingImports": true,
   "reportUnusedImports": true
 }
