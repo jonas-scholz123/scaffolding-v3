@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 root = Path(__file__).resolve().parent.parent.parent
 
@@ -47,25 +47,6 @@ class TestLoaderConfig(DataloaderConfig):
 
 
 @dataclass
-class DatasetConfig:
-    _target_: str = "torchvision.datasets.MNIST"
-    root: Path = root / "_data"
-    train: bool = True
-    download: bool = True
-
-
-@dataclass
-class TrainsetConfig(DatasetConfig):
-    train: bool = True
-
-
-@dataclass
-class TestsetConfig(DatasetConfig):
-    train: bool = False
-    download: bool = False
-
-
-@dataclass
 class NormalizationConfig:
     _target_: str = "torchvision.transforms.Normalize"
     mean: tuple = (0.1307,)
@@ -73,12 +54,20 @@ class NormalizationConfig:
 
 
 @dataclass
+class MnistDataProviderConfig:
+    _target_: str = "data.mnist.MnistDataProvider"
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
+    root: Path = root / "_data"
+    val_fraction: float = 0.2
+
+
+@dataclass
 class DataConfig:
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
-    trainset: DatasetConfig = field(default_factory=TrainsetConfig)
-    testset: TestsetConfig = field(default_factory=TestsetConfig)
-    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
+    data_provider: MnistDataProviderConfig = field(
+        default_factory=MnistDataProviderConfig
+    )
 
 
 @dataclass
@@ -111,6 +100,8 @@ class ExecutionConfig:
 class OutputConfig:
     save_model: bool = True
     out_dir: Path = root / "_output"
+    use_wandb: bool = True
+    log_level: str = "INFO"
 
 
 @dataclass
@@ -125,4 +116,12 @@ class Config:
 
 
 # This isn't perfect, the type annotation approach is nicer but doesn't work with omegaconf
-SKIP_KEYS = {"data", "output", "dry_run", "start_from", "download", "_partial_"}
+SKIP_KEYS = {
+    "output",
+    "dry_run",
+    "start_from",
+    "download",
+    "_partial_",
+    "root",
+    "testloader",
+}

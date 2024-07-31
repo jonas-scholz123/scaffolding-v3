@@ -1,14 +1,13 @@
 from typing import Optional
+import sys
 from loguru import logger
+from dotenv import load_dotenv
+import wandb
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
-from torch.optim.adadelta import Adadelta
-from torchvision import datasets, transforms
-from torch.optim.lr_scheduler import LRScheduler, StepLR
+from torch.optim.lr_scheduler import LRScheduler
 import hydra
 import torch.optim.lr_scheduler
 from omegaconf import OmegaConf
@@ -17,8 +16,8 @@ from hydra.core.config_store import ConfigStore
 from mlbnb.checkpoint import CheckpointManager
 from mlbnb.paths import config_to_filepath
 from mlbnb.rand import seed_everything
+from mlbnb.metric_logger import MetricLogger
 
-from models.convnet import ConvNet
 from config import Config, ExecutionConfig
 from scaffolding_v3.config import SKIP_KEYS, CheckpointOccasion
 
@@ -27,23 +26,25 @@ cs = ConfigStore.instance()
 cs.store(name="config", node=Config)
 
 
-@hydra.main(version_base=None, config_name="config")
+@hydra.main(version_base=None, config_name="config", config_path="../..")
 def main(cfg: Config):
+    _configure_outputs(cfg)
+
     logger.info(OmegaConf.to_yaml(cfg))
 
     seed_everything(cfg.execution.seed)
 
     logger.info("Instantiating dependencies")
-    normalization = hydra.utils.instantiate(cfg.data.normalization)
-    transform = transforms.Compose([transforms.ToTensor(), normalization])
 
-    trainset = hydra.utils.instantiate(cfg.data.trainset, transform=transform)
-    testset = hydra.utils.instantiate(cfg.data.testset, transform=transform)
+    data_provider = hydra.utils.instantiate(cfg.data.data_provider)
+    trainset = data_provider.get_train_data()
+    valset = data_provider.get_val_data()
+
     train_loader = hydra.utils.instantiate(
         cfg.data.trainloader, trainset, generator=torch.default_generator
     )
-    test_loader = hydra.utils.instantiate(
-        cfg.data.testloader, testset, generator=torch.default_generator
+    val_loader = hydra.utils.instantiate(
+        cfg.data.testloader, valset, generator=torch.default_generator
     )
 
     model = hydra.utils.instantiate(cfg.model).to(cfg.execution.device)
@@ -73,8 +74,18 @@ def main(cfg: Config):
         optimizer,
         scheduler,
         train_loader,
-        test_loader,
+        val_loader,
     )
+
+
+def _configure_outputs(cfg: Config):
+    load_dotenv()
+    logger.configure(handlers=[{"sink": sys.stdout, "level": cfg.output.log_level}])
+
+    if cfg.output.use_wandb:
+        # Opt in to new wandb backend
+        wandb.require("core")
+        wandb.init(project="scaffolding_v3", config=dict(cfg), dir=cfg.output.out_dir)  # type: ignore
 
 
 def initial_setup(
@@ -113,14 +124,20 @@ def train_loop(
     optimizer: Optimizer,
     scheduler: Optional[LRScheduler],
     train_loader: DataLoader,
-    test_loader: DataLoader,
+    val_loader: DataLoader,
 ):
     logger.info("Starting training")
 
+    metric_logger = MetricLogger(cfg.output.use_wandb)
+
     for epoch in range(start_epoch, cfg.execution.epochs + 1):
         logger.info("Starting epoch {} / {}", epoch, cfg.execution.epochs)
-        train_step(cfg.execution, model, train_loader, optimizer, loss_fn, epoch)
-        test_step(model, loss_fn, cfg.execution.device, test_loader)
+        train_metrics = train_step(
+            cfg.execution, model, train_loader, optimizer, loss_fn
+        )
+        metric_logger.log(epoch, train_metrics)
+        val_metrics = val_step(model, loss_fn, cfg.execution.device, val_loader)
+        metric_logger.log(epoch, val_metrics)
 
         if cfg.output.save_model:
             checkpoint_manager.save_checkpoint(
@@ -138,30 +155,46 @@ def train_loop(
 
 
 def train_step(
-    train_cfg: ExecutionConfig, model, train_loader, optimizer, loss_fn, epoch
-):
+    train_cfg: ExecutionConfig,
+    model: nn.Module,
+    train_loader: DataLoader,
+    optimizer: Optimizer,
+    loss_fn: nn.Module,
+) -> dict[str, float]:
+    train_loss = 0.0
+
     model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for data, target in train_loader:
+        # TODO: get rid of this
         data, target = data.to(train_cfg.device), target.to(train_cfg.device)
         optimizer.zero_grad()
         output = model(data)
         loss = loss_fn(output, target)
+        train_loss += loss.item() * data.size(0)
         loss.backward()
         optimizer.step()
 
         if train_cfg.dry_run:
             break
 
+    train_len = len(train_loader.dataset)  # type: ignore
+    return {"train_loss": train_loss / train_len}
 
-def test_step(model, loss_fn, device, test_loader):
+
+def val_step(
+    model: nn.Module,
+    loss_fn: nn.Module,
+    device: str,
+    val_loader: DataLoader,
+) -> dict[str, float]:
     model.eval()
-    test_loss = 0
+    val_loss = 0
     correct = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for data, target in val_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
-            test_loss += loss_fn(
+            val_loss += loss_fn(
                 output, target, reduction="sum"
             ).item()  # sum up batch loss
             pred = output.argmax(
@@ -169,16 +202,9 @@ def test_step(model, loss_fn, device, test_loader):
             )  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
-    test_loss /= len(test_loader.dataset)
-
-    logger.info(
-        "Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)".format(
-            test_loss,
-            correct,
-            len(test_loader.dataset),
-            100.0 * correct / len(test_loader.dataset),
-        )
-    )
+    val_len = len(val_loader.dataset)  # type: ignore
+    val_loss /= val_len
+    return {"val_loss": val_loss, "val_accuracy": correct / val_len}
 
 
 if __name__ == "__main__":
