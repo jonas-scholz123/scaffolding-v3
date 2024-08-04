@@ -4,17 +4,28 @@ from pathlib import Path
 from typing import Optional
 
 root = Path(__file__).resolve().parent.parent.parent
+ppu = 200
 
 
 @dataclass
-class LossConfig:
-    _target_: str = "torch.nn.functional.nll_loss"
-    _partial_: bool = True
+class Paths:
+    root: Path = root
+    data: Path = root / "_data"
+    raw_data: Path = root / "_data" / "_raw"
+    elevation: Path = data / "elevation" / "elevation.nc"
+    dwd: Path = data / "dwd" / "dwd.feather"
+    dwd_meta: Path = data / "dwd" / "dwd_meta.feather"
+    value_stations: Path = data / "dwd" / "value_stations.feather"
+    station_splits: Path = data / "dwd" / "station_splits.feather"
+    time_splits: Path = data / "dwd" / "time_splits.feather"
+    data_processor_dir: Path = data / "dwd"
+    output: Path = root / "_output"
 
 
 @dataclass
 class ModelConfig:
-    _target_: str = "models.convnet.ConvNet"
+    _target_: str = "deepsensor.model.ConvNP"
+    internal_density: int = ppu
 
 
 @dataclass
@@ -47,27 +58,37 @@ class TestLoaderConfig(DataloaderConfig):
 
 
 @dataclass
-class NormalizationConfig:
-    _target_: str = "torchvision.transforms.Normalize"
-    mean: tuple = (0.1307,)
-    std: tuple = (0.3081,)
+class DataProviderConfig:
+    pass
 
 
 @dataclass
-class MnistDataProviderConfig:
-    _target_: str = "data.mnist.MnistDataProvider"
-    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
-    root: Path = root / "_data"
-    val_fraction: float = 0.2
+class DwdDataProviderConfig(DataProviderConfig):
+    _target_: str = "data.dwd.DwdDataProvider"
+    num_stations: int = 500
+    num_times: int = 10000
+    val_fraction: float = 0.1
+    aux_ppu: int = ppu
+    paths: Paths = field(default_factory=Paths)
+
+
+@dataclass
+class DwdConfig:
+    dwd_url = "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/recent/"
+    value_url = "https://www.value-cost.eu/sites/default/files/VALUE_ECA_53_Germany_spatial_v1.zip"
+    crs_str = "EPSG:4326"
+
+
+@dataclass
+class SrtmConfig:
+    srtm_url = "https://www.opendem.info/downloads/srtm_germany_dtm.zip"
 
 
 @dataclass
 class DataConfig:
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
-    data_provider: MnistDataProviderConfig = field(
-        default_factory=MnistDataProviderConfig
-    )
+    data_provider: DataProviderConfig = field(default_factory=DwdDataProviderConfig)
 
 
 @dataclass
@@ -107,7 +128,6 @@ class OutputConfig:
 @dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
-    loss: LossConfig = field(default_factory=LossConfig)
     optimizer: OptimizerConfig = field(default_factory=AdadeltaConfig)
     data: DataConfig = field(default_factory=DataConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
@@ -124,4 +144,5 @@ SKIP_KEYS = {
     "_partial_",
     "root",
     "testloader",
+    "paths",
 }

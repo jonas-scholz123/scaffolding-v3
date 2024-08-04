@@ -3,6 +3,7 @@ import sys
 from loguru import logger
 from dotenv import load_dotenv
 import wandb
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim.optimizer import Optimizer
@@ -12,6 +13,9 @@ import hydra
 import torch.optim.lr_scheduler
 from omegaconf import OmegaConf
 from hydra.core.config_store import ConfigStore
+import deepsensor.torch
+from deepsensor.model.convnp import ConvNP
+from deepsensor import Task
 
 from mlbnb.checkpoint import CheckpointManager
 from mlbnb.paths import config_to_filepath
@@ -39,18 +43,26 @@ def main(cfg: Config):
     data_provider = hydra.utils.instantiate(cfg.data.data_provider)
     trainset = data_provider.get_train_data()
     valset = data_provider.get_val_data()
+    collate_fn = data_provider.get_collate_fn()
 
     train_loader = hydra.utils.instantiate(
-        cfg.data.trainloader, trainset, generator=torch.default_generator
+        cfg.data.trainloader,
+        trainset,
+        generator=torch.default_generator,
+        collate_fn=collate_fn,
     )
     val_loader = hydra.utils.instantiate(
-        cfg.data.testloader, valset, generator=torch.default_generator
+        cfg.data.testloader,
+        valset,
+        generator=torch.default_generator,
+        collate_fn=collate_fn,
     )
 
-    model = hydra.utils.instantiate(cfg.model).to(cfg.execution.device)
-    loss_fn = hydra.utils.instantiate(cfg.loss)
+    model = hydra.utils.instantiate(
+        cfg.model, trainset.data_processor, trainset.task_loader
+    )
 
-    optimizer = hydra.utils.instantiate(cfg.optimizer, model.parameters())
+    optimizer = hydra.utils.instantiate(cfg.optimizer, model.model.parameters())
 
     scheduler = (
         hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
@@ -70,7 +82,6 @@ def main(cfg: Config):
         cfg,
         checkpoint_manager,
         model,
-        loss_fn,
         optimizer,
         scheduler,
         train_loader,
@@ -91,7 +102,7 @@ def _configure_outputs(cfg: Config):
 def initial_setup(
     cfg: Config,
     checkpoint_manager: CheckpointManager,
-    model: nn.Module,
+    model: ConvNP,
     optimizer: Optimizer,
     scheduler: Optional[LRScheduler],
 ) -> int:
@@ -99,7 +110,7 @@ def initial_setup(
     start_from = cfg.execution.start_from
     if start_from and checkpoint_manager.checkpoint_exists(start_from.value):
         checkpoint = checkpoint_manager.reproduce(
-            start_from.value, model, optimizer, scheduler
+            start_from.value, model.model, optimizer, scheduler
         )
 
         # Checkpoint is at end of epoch, add 1 for next epoch.
@@ -119,8 +130,7 @@ def train_loop(
     start_epoch: int,
     cfg: Config,
     checkpoint_manager: CheckpointManager,
-    model: nn.Module,
-    loss_fn: nn.Module,
+    model: ConvNP,
     optimizer: Optimizer,
     scheduler: Optional[LRScheduler],
     train_loader: DataLoader,
@@ -132,18 +142,16 @@ def train_loop(
 
     for epoch in range(start_epoch, cfg.execution.epochs + 1):
         logger.info("Starting epoch {} / {}", epoch, cfg.execution.epochs)
-        train_metrics = train_step(
-            cfg.execution, model, train_loader, optimizer, loss_fn
-        )
+        train_metrics = train_step(cfg.execution, model, train_loader, optimizer)
         metric_logger.log(epoch, train_metrics)
-        val_metrics = val_step(model, loss_fn, cfg.execution.device, val_loader)
+        val_metrics = val_step(cfg.execution, model, val_loader)
         metric_logger.log(epoch, val_metrics)
 
         if cfg.output.save_model:
             checkpoint_manager.save_checkpoint(
                 epoch,
                 CheckpointOccasion.LATEST.value,
-                model,
+                model.model,
                 optimizer,
                 scheduler,
             )
@@ -156,55 +164,66 @@ def train_loop(
 
 def train_step(
     train_cfg: ExecutionConfig,
-    model: nn.Module,
+    model: ConvNP,
     train_loader: DataLoader,
     optimizer: Optimizer,
-    loss_fn: nn.Module,
 ) -> dict[str, float]:
     train_loss = 0.0
 
-    model.train()
-    for data, target in train_loader:
-        # TODO: get rid of this
-        data, target = data.to(train_cfg.device), target.to(train_cfg.device)
+    model.model.train()
+    for batch in train_loader:
+        if train_cfg.dry_run:
+            batch = batch[:1]
+
+        task_losses = []
         optimizer.zero_grad()
-        output = model(data)
-        loss = loss_fn(output, target)
-        train_loss += loss.item() * data.size(0)
-        loss.backward()
+
+        for task in batch:
+            task_losses.append(model.loss_fn(task, normalise=True))
+
+        batch_loss = torch.mean(torch.stack(task_losses))
+        batch_loss.backward()
         optimizer.step()
+
+        train_loss += float(batch_loss.detach().cpu().numpy())
 
         if train_cfg.dry_run:
             break
 
-    train_len = len(train_loader.dataset)  # type: ignore
-    return {"train_loss": train_loss / train_len}
+    return {"train_loss": train_loss}
 
 
 def val_step(
-    model: nn.Module,
-    loss_fn: nn.Module,
-    device: str,
+    cfg: ExecutionConfig,
+    model: ConvNP,
     val_loader: DataLoader,
 ) -> dict[str, float]:
-    model.eval()
-    val_loss = 0
+    model.model.eval()
     correct = 0
+    batch_losses = []
     with torch.no_grad():
-        for data, target in val_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            val_loss += loss_fn(
-                output, target, reduction="sum"
-            ).item()  # sum up batch loss
-            pred = output.argmax(
-                dim=1, keepdim=True
-            )  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
+        for batch in val_loader:
 
-    val_len = len(val_loader.dataset)  # type: ignore
-    val_loss /= val_len
-    return {"val_loss": val_loss, "val_accuracy": correct / val_len}
+            if cfg.dry_run:
+                batch = batch[:1]
+
+            batch_losses.append(eval_on_batch(model, batch))
+
+            if cfg.dry_run:
+                break
+
+    val_loss = float(np.mean(batch_losses))
+    return {"val_loss": val_loss}
+
+
+def eval_on_batch(model: ConvNP, batch: list[Task]) -> float:
+    with torch.no_grad():
+        task_losses = []
+        for task in batch:
+            task_losses.append(model.loss_fn(task, normalise=True))
+        mean_batch_loss = torch.mean(torch.stack(task_losses))
+
+    return float(mean_batch_loss.detach().cpu().numpy())
 
 
 if __name__ == "__main__":

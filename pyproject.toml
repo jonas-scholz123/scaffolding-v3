@@ -12,6 +12,14 @@ dependencies = [
     "loguru>=0.7.2",
     "wandb>=0.17.5",
     "python-dotenv>=1.0.1",
+    "pandas>=2.2.2",
+    "geopandas>=1.0.1",
+    "pyarrow>=17.0.0",
+    "requests>=2.32.3",
+    "beautifulsoup4>=4.12.3",
+    "deepsensor>=0.3.8",
+    "xarray>=2024.7.0",
+    "rioxarray>=0.17.0",
 ]
 requires-python = "==3.12.*"
 readme = "README.md"
