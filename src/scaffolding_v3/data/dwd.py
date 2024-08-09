@@ -1,3 +1,4 @@
+#%%
 from pathlib import Path
 from typing import Optional, Callable
 import geopandas as gpd
@@ -16,7 +17,7 @@ from scaffolding_v3.config import Paths
 from scaffolding_v3.data.elevation import load_elevation_data
 
 
-def get_dwd_data(paths: Paths):
+def get_dwd_data(paths: Paths) -> gpd.GeoDataFrame:
     """
     Load and join the DWD data from the preprocessed feather files.
     """
@@ -24,8 +25,10 @@ def get_dwd_data(paths: Paths):
     meta_df = gpd.read_feather(paths.dwd_meta)
     df = pd.read_feather(paths.dwd)
     df = meta_df.merge(df, on="station_id")
+    df["date_str"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m-%d")
+    df = df.query("time <= to_date and time >= from_date")
     df = df.set_index(["time", "station_id"])
-    df = df.drop(["from_date", "to_date"], axis=1)
+    df = df.drop(["from_date", "to_date", "date_str"], axis=1)
     return df
 
 
@@ -62,7 +65,6 @@ class DwdStationDataset(Dataset):
         times: list[pd.Timestamp],
         data_processor: DataProcessor,
         eval_mode: bool,
-        paths: Paths,
     ):
         self.times = times
         self.eval_mode = eval_mode
@@ -77,6 +79,7 @@ class DwdStationDataset(Dataset):
             time_freq="h",
             discrete_xarray_sampling=True,  # TODO: into config
         )
+        self.task_loader.load_dask()
 
     def __len__(self):
         return len(self.times)
@@ -126,7 +129,7 @@ class DwdDataProvider(DataProvider):
         stations = stations.sort_values("order", ascending=True)
         stations = stations.head(self.num_stations)
 
-        train_stations, val_stations = split(stations["station_id"], self.val_fraction)
+        val_stations, train_stations = split(stations["station_id"], self.val_fraction)
         train_stations = list(train_stations)
         val_stations = list(val_stations)
 
@@ -155,6 +158,9 @@ class DwdDataProvider(DataProvider):
         times: list[pd.Timestamp],
         eval_mode: bool,
     ) -> DwdStationDataset:
+
+        logger.debug("Generating dataset for {} stations at {} times", len(target_stations), len(times))
+
         context = self.df.query("station_id in @context_stations and time in @times")
         target = self.df.query("station_id in @target_stations and time in @times")
 
@@ -168,7 +174,6 @@ class DwdDataProvider(DataProvider):
             times,
             self.data_processor,
             eval_mode,
-            self.paths,
         )
 
     def get_train_data(self) -> Dataset:
@@ -189,8 +194,7 @@ class DwdDataProvider(DataProvider):
     def get_collate_fn(self) -> Callable:
         return lambda x: x
 
-
+#%%
 if __name__ == "__main__":
-    data = DwdDataProvider(Paths(), 100, 1000, 0.2, 500)
+    data = DwdDataProvider(Paths(), 500, 1000, 0.2, 500)
     train = data.get_train_data()
-    print(next(iter(train)))

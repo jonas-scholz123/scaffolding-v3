@@ -11,12 +11,10 @@ import pandas as pd
 from tqdm import tqdm
 from zipfile import ZipFile, BadZipFile
 from scaffolding_v3.config import DwdConfig, Paths
-from scaffolding_v3.data.dwd import DwdDataProvider, get_dwd_data, to_deepsensor_df
+from scaffolding_v3.data.dwd import get_dwd_data
 from mlbnb.file import ensure_parent_exists
 import geopandas as gpd
-import numpy as np
 from loguru import logger
-from deepsensor import DataProcessor
 
 paths = Paths()
 dwd_cfg = DwdConfig()
