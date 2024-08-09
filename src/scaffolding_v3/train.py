@@ -1,11 +1,12 @@
 from typing import Optional
+import warnings
 import sys
 from loguru import logger
 from dotenv import load_dotenv
+from tqdm import tqdm
 import wandb
 import numpy as np
 import torch
-import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LRScheduler
@@ -13,8 +14,9 @@ import hydra
 import torch.optim.lr_scheduler
 from omegaconf import OmegaConf
 from hydra.core.config_store import ConfigStore
-import deepsensor.torch
 from deepsensor.model.convnp import ConvNP
+from deepsensor.train.train import set_gpu_default_device
+import deepsensor.torch
 from deepsensor import Task
 
 from mlbnb.checkpoint import CheckpointManager
@@ -22,21 +24,28 @@ from mlbnb.paths import config_to_filepath
 from mlbnb.rand import seed_everything
 from mlbnb.metric_logger import MetricLogger
 
-from config import Config, ExecutionConfig
-from scaffolding_v3.config import SKIP_KEYS, CheckpointOccasion
-
+from scaffolding_v3.config import SKIP_KEYS, CheckpointOccasion, Config, ExecutionConfig, OutputConfig
 
 cs = ConfigStore.instance()
-cs.store(name="config", node=Config)
+cs.store(name="dev", node=Config)
+cs.store(name="prod", node=Config(
+    execution=ExecutionConfig(dry_run=False),
+    output=OutputConfig(use_wandb=True)
+    ))
 
-
-@hydra.main(version_base=None, config_name="config", config_path="../..")
+@hydra.main(version_base=None, config_name="dev", config_path="../..")
 def main(cfg: Config):
     _configure_outputs(cfg)
 
     logger.info(OmegaConf.to_yaml(cfg))
 
+    if cfg.execution.device == "cuda":
+        set_gpu_default_device()
+
     seed_everything(cfg.execution.seed)
+    generator = torch.Generator(device=cfg.execution.device).manual_seed(
+        cfg.execution.seed
+    )
 
     logger.info("Instantiating dependencies")
 
@@ -48,13 +57,13 @@ def main(cfg: Config):
     train_loader = hydra.utils.instantiate(
         cfg.data.trainloader,
         trainset,
-        generator=torch.default_generator,
+        generator=generator,
         collate_fn=collate_fn,
     )
     val_loader = hydra.utils.instantiate(
         cfg.data.testloader,
         valset,
-        generator=torch.default_generator,
+        generator=generator,
         collate_fn=collate_fn,
     )
 
@@ -75,7 +84,7 @@ def main(cfg: Config):
 
     logger.info("Finished instantiating dependencies")
 
-    start_epoch = initial_setup(cfg, checkpoint_manager, model, optimizer, scheduler)
+    start_epoch = initial_setup(cfg, checkpoint_manager, model, optimizer, generator, scheduler)
 
     train_loop(
         start_epoch,
@@ -83,15 +92,18 @@ def main(cfg: Config):
         checkpoint_manager,
         model,
         optimizer,
-        scheduler,
         train_loader,
         val_loader,
+        generator,
+        scheduler,
     )
 
 
 def _configure_outputs(cfg: Config):
     load_dotenv()
     logger.configure(handlers=[{"sink": sys.stdout, "level": cfg.output.log_level}])
+
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.protobuf")
 
     if cfg.output.use_wandb:
         # Opt in to new wandb backend
@@ -104,13 +116,14 @@ def initial_setup(
     checkpoint_manager: CheckpointManager,
     model: ConvNP,
     optimizer: Optimizer,
+    generator: torch.Generator,
     scheduler: Optional[LRScheduler],
 ) -> int:
     start_epoch = 1
     start_from = cfg.execution.start_from
     if start_from and checkpoint_manager.checkpoint_exists(start_from.value):
         checkpoint = checkpoint_manager.reproduce(
-            start_from.value, model.model, optimizer, scheduler
+            start_from.value, model.model, optimizer, generator, scheduler
         )
 
         # Checkpoint is at end of epoch, add 1 for next epoch.
@@ -132,9 +145,10 @@ def train_loop(
     checkpoint_manager: CheckpointManager,
     model: ConvNP,
     optimizer: Optimizer,
-    scheduler: Optional[LRScheduler],
     train_loader: DataLoader,
     val_loader: DataLoader,
+    generator: torch.Generator,
+    scheduler: Optional[LRScheduler],
 ):
     logger.info("Starting training")
 
@@ -153,6 +167,7 @@ def train_loop(
                 CheckpointOccasion.LATEST.value,
                 model.model,
                 optimizer,
+                generator,
                 scheduler,
             )
 
@@ -171,7 +186,7 @@ def train_step(
     train_loss = 0.0
 
     model.model.train()
-    for batch in train_loader:
+    for batch in tqdm(train_loader):
         if train_cfg.dry_run:
             batch = batch[:1]
 
@@ -190,7 +205,7 @@ def train_step(
         if train_cfg.dry_run:
             break
 
-    return {"train_loss": train_loss}
+    return {"train_loss": train_loss / len(train_loader)}
 
 
 def val_step(
@@ -199,10 +214,9 @@ def val_step(
     val_loader: DataLoader,
 ) -> dict[str, float]:
     model.model.eval()
-    correct = 0
     batch_losses = []
     with torch.no_grad():
-        for batch in val_loader:
+        for batch in tqdm(val_loader):
 
             if cfg.dry_run:
                 batch = batch[:1]

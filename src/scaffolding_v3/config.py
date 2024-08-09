@@ -30,12 +30,17 @@ class ModelConfig:
 
 @dataclass
 class OptimizerConfig:
-    lr: float = 1.0
+    lr: float = 1e-3
 
 
 @dataclass
 class AdadeltaConfig(OptimizerConfig):
     _target_: str = "torch.optim.Adadelta"
+
+@dataclass
+class AdamConfig(OptimizerConfig):
+    _target_: str = "torch.optim.Adam"
+    lr: float = 5e-5
 
 
 @dataclass
@@ -47,7 +52,7 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 64
+    batch_size: int = 4
     shuffle: bool = True
 
 
@@ -110,10 +115,10 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str = "mps"
-    dry_run: bool = False
+    device: str = "cuda"
+    dry_run: bool = True
     epochs: int = 10
-    seed: int = 1
+    seed: int = 42
     start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
 
 
@@ -121,14 +126,14 @@ class ExecutionConfig:
 class OutputConfig:
     save_model: bool = True
     out_dir: Path = root / "_output"
-    use_wandb: bool = True
+    use_wandb: bool = False
     log_level: str = "INFO"
 
 
 @dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
-    optimizer: OptimizerConfig = field(default_factory=AdadeltaConfig)
+    optimizer: OptimizerConfig = field(default_factory=AdamConfig)
     data: DataConfig = field(default_factory=DataConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -138,7 +143,6 @@ class Config:
 # This isn't perfect, the type annotation approach is nicer but doesn't work with omegaconf
 SKIP_KEYS = {
     "output",
-    "dry_run",
     "start_from",
     "download",
     "_partial_",

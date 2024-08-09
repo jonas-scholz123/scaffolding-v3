@@ -20,6 +20,8 @@ dependencies = [
     "deepsensor>=0.3.8",
     "xarray>=2024.7.0",
     "rioxarray>=0.17.0",
+    "cartopy>=0.23.0",
+    "ipykernel>=6.29.5",
 ]
 requires-python = "==3.12.*"
 readme = "README.md"
