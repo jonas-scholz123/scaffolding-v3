@@ -172,36 +172,36 @@ def train_val_test_dts(dts):
     """
     This follows the google paper's sampling strategy.
     """
-    dts = list(dts)
+    days = pd.Series(dts).dt.floor("D").unique()
 
     train, val, test = [], [], []
 
     # 19 days.
-    train_duration = 19 * 24
+    train_duration = 19
     # 2 days.
-    val_duration = 2 * 24
-    # 2.5 days.
-    test_duration = 5 * 12
+    val_duration = 2
+    # 2 days.
+    test_duration = 2
 
     # 2 days skipped at borders.
-    skip_duration = 2 * 24
+    skip_duration = 2
 
     i = 0
-    while i < len(dts):
+    while i < len(days):
         # Add training datetimes.
-        train += dts[i : i + train_duration]
+        train += days[i : i + train_duration]
         i += train_duration + skip_duration
-        if i >= len(dts):
+        if i >= len(days):
             break
 
-        val += dts[i : i + val_duration]
+        val += days[i : i + val_duration]
         i += val_duration + skip_duration
-        if i >= len(dts):
+        if i >= len(days):
             break
 
-        test += dts[i : i + test_duration]
+        test += days[i : i + test_duration]
         i += test_duration + skip_duration
-        if i >= len(dts):
+        if i >= len(days):
             break
 
     # Make sure there's no overlap.
@@ -210,6 +210,10 @@ def train_val_test_dts(dts):
         and set(val).isdisjoint(test)
         and set(test).isdisjoint(train)
     )
+
+    train = dts[dts.floor("D").isin(train)]
+    val = dts[dts.floor("D").isin(val)]
+    test = dts[dts.floor("D").isin(test)]
 
     return train, val, test
 
@@ -283,6 +287,7 @@ def save_datetime_splits():
     full = get_dwd_data(paths)
     dts = full.index.get_level_values("time").unique()
     train_dts, val_dts, test_dts = train_val_test_dts(dts)
+    logger.info("Splitting datetimes into {} train, {} val, {} test.", len(train_dts), len(val_dts), len(test_dts))
     df = pd.DataFrame(index=dts.sort_values())
     df["set"] = None
     df.loc[train_dts] = "train"

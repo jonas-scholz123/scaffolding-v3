@@ -7,11 +7,13 @@ import xarray as xr
 import numpy as np
 from torch.utils.data import Dataset
 from loguru import logger
+import deepsensor.torch
 from deepsensor.data.processor import DataProcessor
 from deepsensor.data.loader import TaskLoader
 
 
 from mlbnb.rand import split, sample
+from mlbnb.cache import CachedDataset
 from scaffolding_v3.data.dataprovider import DataProvider
 from scaffolding_v3.config import Paths
 from scaffolding_v3.data.elevation import load_elevation_data
@@ -62,6 +64,7 @@ class DwdStationDataset(Dataset):
         raw_context: pd.DataFrame,
         raw_target: pd.DataFrame,
         raw_aux: xr.Dataset,
+        hires_raw_aux: xr.Dataset,
         times: list[pd.Timestamp],
         data_processor: DataProcessor,
         eval_mode: bool,
@@ -72,12 +75,14 @@ class DwdStationDataset(Dataset):
         context: pd.DataFrame = self.data_processor(raw_context)  # type: ignore
         target: pd.DataFrame = self.data_processor(raw_target)  # type: ignore
         aux: xr.Dataset = self.data_processor(raw_aux)  # type: ignore
+        high_res_aux: xr.Dataset = self.data_processor(hires_raw_aux)  # type: ignore
 
         self.task_loader = TaskLoader(
             context=[context, aux],
             target=[target],
             time_freq="h",
             discrete_xarray_sampling=True,  # TODO: into config
+            aux_at_targets=high_res_aux,
         )
         self.task_loader.load_dask()
 
@@ -108,21 +113,55 @@ class DwdDataProvider(DataProvider):
         num_times: int,
         val_fraction: float,
         aux_ppu: int,
+        cache: bool,
+        daily_averaged: bool,
     ) -> None:
         self.paths = paths
         self.num_stations = num_stations
         self.num_times = num_times
         self.val_fraction = val_fraction
+        self.cache = cache
 
         self.df = get_dwd_data(paths)
+
         self.station_splits = pd.read_feather(paths.station_splits)
         self.time_splits = pd.read_feather(paths.time_splits)
+
         self.elevation = load_elevation_data(paths, aux_ppu)
+        self.high_res_elevation = load_elevation_data(paths, 500)
+
+        if daily_averaged:
+            self.df = self.df.reset_index()
+            self.df = self.df.groupby(["lat", "lon", "station_id", "station_name", "geometry"]).resample("D", on="time").mean()[["t2m"]]
+            self.df = self.df.reset_index().set_index(["time", "lat", "lon"]).sort_index()
+
+            self.time_splits = self.time_splits.resample("D", on="time").first().reset_index()
 
         self.data_processor = get_data_processor(paths, self.df, self.elevation)
 
+
+        total_num_stations = len(self.station_splits.query("set == 'trainval'"))
+        if num_stations > total_num_stations:
+            logger.warning(
+                "Requested {} stations, but only {} are available. Using all stations.",
+                num_stations,
+                total_num_stations,
+            )
+            self.num_stations = total_num_stations
+        
+        total_num_times = len(self.time_splits.query("set == 'train' or set == 'val'"))
+        if num_times > total_num_times:
+            logger.warning(
+                "Requested {} times, but only {} are available. Using all times.",
+                num_times,
+                total_num_times,
+            )
+            self.num_times = total_num_times
+
+
         self.trainset = None
         self.valset = None
+        self.testset = None
 
     def _split_train_val_test(self) -> tuple[Dataset, Dataset, Dataset]:
         stations = self.station_splits.query("set == 'trainval'")
@@ -149,6 +188,13 @@ class DwdDataProvider(DataProvider):
         valset = self.gen_trainset(train_stations, val_stations, val_times, True)
         testset = self.gen_trainset(train_stations, test_ids, test_times, True)
 
+        logger.info(
+            "Split times into train: {} val: {} test: {}",
+            len(trainset),
+            len(valset),
+            len(testset),
+        )
+
         return trainset, valset, testset
 
     def gen_trainset(
@@ -167,14 +213,19 @@ class DwdDataProvider(DataProvider):
         context = to_deepsensor_df(context)
         target = to_deepsensor_df(target)
 
-        return DwdStationDataset(
+        dataset =  DwdStationDataset(
             context,
             target,
             self.elevation,
+            self.high_res_elevation,
             times,
             self.data_processor,
             eval_mode,
         )
+
+
+        if self.cache:
+            return CachedDataset(dataset)
 
     def get_train_data(self) -> Dataset:
         if self.trainset is None:
@@ -193,6 +244,53 @@ class DwdDataProvider(DataProvider):
 
     def get_collate_fn(self) -> Callable:
         return lambda x: x
+
+class DailyAveragedDwdDataProvider(DwdDataProvider):
+    """
+    Computes daily mean temperatures for each station.
+    """
+    def __init__(
+        self,
+        paths: Paths,
+        num_stations: int,
+        num_times: int,
+        val_fraction: float,
+        aux_ppu: int,
+        cache: bool,
+    ) -> None:
+        super().__init__(paths, num_stations, num_times, val_fraction, aux_ppu, cache, True)
+
+    def gen_trainset(
+        self,
+        context_stations: list[int],
+        target_stations: list[int],
+        times: list[pd.Timestamp],
+        eval_mode: bool,
+    ) -> DwdStationDataset:
+        
+        logger.debug("Generating dataset for {} stations at {} times", len(target_stations), len(times))
+
+        context = self.df.query("station_id in @context_stations and time in @times")
+        target = self.df.query("station_id in @target_stations and time in @times")
+
+        context = to_deepsensor_df(context)
+        target = to_deepsensor_df(target)
+
+        target = target.groupby("station_id").resample("D").mean().reset_index()
+        target = target.set_index(["time", "station_id"])[["t2m"]]
+
+        dataset =  DwdStationDataset(
+            context,
+            target,
+            self.elevation,
+            self.high_res_elevation,
+            times,
+            self.data_processor,
+            eval_mode,
+        )
+
+        if self.cache:
+            return CachedDataset(dataset)
 
 #%%
 if __name__ == "__main__":

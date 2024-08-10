@@ -54,6 +54,7 @@ def main(cfg: Config):
     valset = data_provider.get_val_data()
     collate_fn = data_provider.get_collate_fn()
 
+
     train_loader = hydra.utils.instantiate(
         cfg.data.trainloader,
         trainset,
@@ -79,7 +80,6 @@ def main(cfg: Config):
 
     path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
     logger.info("Experiment path: {}", path)
-
     checkpoint_manager = CheckpointManager(path)
 
     logger.info("Finished instantiating dependencies")
@@ -154,6 +154,8 @@ def train_loop(
 
     metric_logger = MetricLogger(cfg.output.use_wandb)
 
+    best_val_loss = float("inf")
+
     for epoch in range(start_epoch, cfg.execution.epochs + 1):
         logger.info("Starting epoch {} / {}", epoch, cfg.execution.epochs)
         train_metrics = train_step(cfg.execution, model, train_loader, optimizer)
@@ -165,6 +167,17 @@ def train_loop(
             checkpoint_manager.save_checkpoint(
                 epoch,
                 CheckpointOccasion.LATEST.value,
+                model.model,
+                optimizer,
+                generator,
+                scheduler,
+            )
+        
+        if val_metrics["val_loss"] < best_val_loss:
+            best_val_loss = val_metrics["val_loss"]
+            checkpoint_manager.save_checkpoint(
+                epoch,
+                CheckpointOccasion.BEST.value,
                 model.model,
                 optimizer,
                 generator,

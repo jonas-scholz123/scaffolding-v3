@@ -4,14 +4,14 @@ from pathlib import Path
 from typing import Optional
 
 root = Path(__file__).resolve().parent.parent.parent
-ppu = 200
+ppu = 150
 
 
 @dataclass
 class Paths:
     root: Path = root
-    data: Path = root / "_data"
-    raw_data: Path = root / "_data" / "_raw"
+    data: Path = Path("/media/jonas/Extreme SSD/scaffolding-v3/_data")
+    raw_data: Path = data / "_raw"
     elevation: Path = data / "elevation" / "elevation.nc"
     dwd: Path = data / "dwd" / "dwd.feather"
     dwd_meta: Path = data / "dwd" / "dwd_meta.feather"
@@ -26,6 +26,9 @@ class Paths:
 class ModelConfig:
     _target_: str = "deepsensor.model.ConvNP"
     internal_density: int = ppu
+    unet_channels: tuple = (64,) * 4
+    aux_t_mlp_layers: tuple = (64,) * 3
+    likelihood: str = "cnp"
 
 
 @dataclass
@@ -36,6 +39,7 @@ class OptimizerConfig:
 @dataclass
 class AdadeltaConfig(OptimizerConfig):
     _target_: str = "torch.optim.Adadelta"
+
 
 @dataclass
 class AdamConfig(OptimizerConfig):
@@ -52,8 +56,9 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 4
+    batch_size: int = 1
     shuffle: bool = True
+    num_workers: int = 1
 
 
 @dataclass
@@ -71,15 +76,17 @@ class DataProviderConfig:
 class DwdDataProviderConfig(DataProviderConfig):
     _target_: str = "data.dwd.DwdDataProvider"
     num_stations: int = 500
-    num_times: int = 10000
+    num_times: int = 1000
     val_fraction: float = 0.1
     aux_ppu: int = ppu
+    cache: bool = True
+    daily_averaged: bool = True
     paths: Paths = field(default_factory=Paths)
 
 
 @dataclass
 class DwdConfig:
-    dwd_url = "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/recent/"
+    dwd_url = "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/historical/"
     value_url = "https://www.value-cost.eu/sites/default/files/VALUE_ECA_53_Germany_spatial_v1.zip"
     crs_str = "EPSG:4326"
 
@@ -117,7 +124,7 @@ class CheckpointOccasion(Enum):
 class ExecutionConfig:
     device: str = "cuda"
     dry_run: bool = True
-    epochs: int = 10
+    epochs: int = 80
     seed: int = 42
     start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
 
