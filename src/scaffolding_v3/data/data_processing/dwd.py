@@ -81,7 +81,6 @@ def load_station_metadata(fpath):
         "lon",
         "from_date",
         "to_date",
-        "station_name",
     ]
     df = pd.read_csv(fpath, delimiter=";", encoding="latin-1")
     df.columns = meta_columns

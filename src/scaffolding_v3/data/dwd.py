@@ -17,6 +17,7 @@ from mlbnb.cache import CachedDataset
 from scaffolding_v3.data.dataprovider import DataProvider
 from scaffolding_v3.config import Paths
 from scaffolding_v3.data.elevation import load_elevation_data
+from tqdm import tqdm
 
 
 def get_dwd_data(paths: Paths) -> gpd.GeoDataFrame:
@@ -25,12 +26,24 @@ def get_dwd_data(paths: Paths) -> gpd.GeoDataFrame:
     """
     logger.info("Loading DWD data")
     meta_df = gpd.read_feather(paths.dwd_meta)
+
+    chunks = []
+
     df = pd.read_feather(paths.dwd)
-    df = meta_df.merge(df, on="station_id")
-    df["date_str"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m-%d")
-    df = df.query("time <= to_date and time >= from_date")
-    df = df.set_index(["time", "station_id"])
-    df = df.drop(["from_date", "to_date", "date_str"], axis=1)
+
+    chunk_size = 100000
+    
+    for chunk_idx in tqdm(range(0, len(df), chunk_size)):
+        chunk = df.iloc[chunk_idx:chunk_idx + chunk_size]
+        chunk = meta_df.merge(chunk, on="station_id")
+        chunk["date_str"] = pd.to_datetime(chunk["time"]).dt.strftime("%Y-%m-%d")
+        chunk = chunk.query("time <= to_date and time >= from_date")
+        chunk = chunk.set_index(["time", "station_id"])
+        chunk = chunk.drop(["from_date", "to_date", "date_str"], axis=1)
+        chunks.append(chunk)
+
+    df = pd.concat(chunks)
+
     return df
 
 
