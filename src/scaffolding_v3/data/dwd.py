@@ -1,4 +1,4 @@
-#%%
+# %%
 from pathlib import Path
 from typing import Optional, Callable
 import geopandas as gpd
@@ -25,25 +25,7 @@ def get_dwd_data(paths: Paths) -> gpd.GeoDataFrame:
     Load and join the DWD data from the preprocessed feather files.
     """
     logger.info("Loading DWD data")
-    meta_df = gpd.read_feather(paths.dwd_meta)
-
-    chunks = []
-
-    df = pd.read_feather(paths.dwd)
-
-    chunk_size = 100000
-    
-    for chunk_idx in tqdm(range(0, len(df), chunk_size)):
-        chunk = df.iloc[chunk_idx:chunk_idx + chunk_size]
-        chunk = meta_df.merge(chunk, on="station_id")
-        chunk["date_str"] = pd.to_datetime(chunk["time"]).dt.strftime("%Y-%m-%d")
-        chunk = chunk.query("time <= to_date and time >= from_date")
-        chunk = chunk.set_index(["time", "station_id"])
-        chunk = chunk.drop(["from_date", "to_date", "date_str"], axis=1)
-        chunks.append(chunk)
-
-    df = pd.concat(chunks)
-
+    df = pd.read_parquet(paths.dwd)
     return df
 
 
@@ -145,13 +127,22 @@ class DwdDataProvider(DataProvider):
 
         if daily_averaged:
             self.df = self.df.reset_index()
-            self.df = self.df.groupby(["lat", "lon", "station_id", "station_name", "geometry"]).resample("D", on="time").mean()[["t2m"]]
-            self.df = self.df.reset_index().set_index(["time", "lat", "lon"]).sort_index()
+            self.df = (
+                self.df.groupby(
+                    ["lat", "lon", "station_id", "station_name", "geometry"]
+                )
+                .resample("D", on="time")
+                .mean()[["t2m"]]
+            )
+            self.df = (
+                self.df.reset_index().set_index(["time", "lat", "lon"]).sort_index()
+            )
 
-            self.time_splits = self.time_splits.resample("D", on="time").first().reset_index()
+            self.time_splits = (
+                self.time_splits.resample("D", on="time").first().reset_index()
+            )
 
         self.data_processor = get_data_processor(paths, self.df, self.elevation)
-
 
         total_num_stations = len(self.station_splits.query("set == 'trainval'"))
         if num_stations > total_num_stations:
@@ -161,7 +152,7 @@ class DwdDataProvider(DataProvider):
                 total_num_stations,
             )
             self.num_stations = total_num_stations
-        
+
         total_num_times = len(self.time_splits.query("set == 'train' or set == 'val'"))
         if num_times > total_num_times:
             logger.warning(
@@ -170,7 +161,6 @@ class DwdDataProvider(DataProvider):
                 total_num_times,
             )
             self.num_times = total_num_times
-
 
         self.trainset = None
         self.valset = None
@@ -218,7 +208,11 @@ class DwdDataProvider(DataProvider):
         eval_mode: bool,
     ) -> DwdStationDataset:
 
-        logger.debug("Generating dataset for {} stations at {} times", len(target_stations), len(times))
+        logger.debug(
+            "Generating dataset for {} stations at {} times",
+            len(target_stations),
+            len(times),
+        )
 
         context = self.df.query("station_id in @context_stations and time in @times")
         target = self.df.query("station_id in @target_stations and time in @times")
@@ -226,7 +220,7 @@ class DwdDataProvider(DataProvider):
         context = to_deepsensor_df(context)
         target = to_deepsensor_df(target)
 
-        dataset =  DwdStationDataset(
+        dataset = DwdStationDataset(
             context,
             target,
             self.elevation,
@@ -235,7 +229,6 @@ class DwdDataProvider(DataProvider):
             self.data_processor,
             eval_mode,
         )
-
 
         if self.cache:
             return CachedDataset(dataset)
@@ -258,10 +251,12 @@ class DwdDataProvider(DataProvider):
     def get_collate_fn(self) -> Callable:
         return lambda x: x
 
+
 class DailyAveragedDwdDataProvider(DwdDataProvider):
     """
     Computes daily mean temperatures for each station.
     """
+
     def __init__(
         self,
         paths: Paths,
@@ -271,7 +266,9 @@ class DailyAveragedDwdDataProvider(DwdDataProvider):
         aux_ppu: int,
         cache: bool,
     ) -> None:
-        super().__init__(paths, num_stations, num_times, val_fraction, aux_ppu, cache, True)
+        super().__init__(
+            paths, num_stations, num_times, val_fraction, aux_ppu, cache, True
+        )
 
     def gen_trainset(
         self,
@@ -280,8 +277,12 @@ class DailyAveragedDwdDataProvider(DwdDataProvider):
         times: list[pd.Timestamp],
         eval_mode: bool,
     ) -> DwdStationDataset:
-        
-        logger.debug("Generating dataset for {} stations at {} times", len(target_stations), len(times))
+
+        logger.debug(
+            "Generating dataset for {} stations at {} times",
+            len(target_stations),
+            len(times),
+        )
 
         context = self.df.query("station_id in @context_stations and time in @times")
         target = self.df.query("station_id in @target_stations and time in @times")
@@ -292,7 +293,7 @@ class DailyAveragedDwdDataProvider(DwdDataProvider):
         target = target.groupby("station_id").resample("D").mean().reset_index()
         target = target.set_index(["time", "station_id"])[["t2m"]]
 
-        dataset =  DwdStationDataset(
+        dataset = DwdStationDataset(
             context,
             target,
             self.elevation,
@@ -305,7 +306,8 @@ class DailyAveragedDwdDataProvider(DwdDataProvider):
         if self.cache:
             return CachedDataset(dataset)
 
-#%%
+
+# %%
 if __name__ == "__main__":
     data = DwdDataProvider(Paths(), 500, 1000, 0.2, 500)
     train = data.get_train_data()

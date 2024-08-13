@@ -10,14 +10,14 @@ ppu = 150
 @dataclass
 class Paths:
     root: Path = root
-    data: Path = Path("/media/jonas/Extreme SSD/scaffolding-v3/_data")
+    data: Path = Path("/Volumes/Extreme SSD/scaffolding-v3/_data")
     raw_data: Path = data / "_raw"
     elevation: Path = data / "elevation" / "elevation.nc"
-    dwd: Path = data / "dwd" / "dwd.feather"
-    dwd_meta: Path = data / "dwd" / "dwd_meta.feather"
-    value_stations: Path = data / "dwd" / "value_stations.feather"
-    station_splits: Path = data / "dwd" / "station_splits.feather"
-    time_splits: Path = data / "dwd" / "time_splits.feather"
+    dwd: Path = data / "dwd" / "dwd.parquet"
+    dwd_meta: Path = data / "dwd" / "dwd_meta.parquet"
+    value_stations: Path = data / "dwd" / "value_stations.parquet"
+    station_splits: Path = data / "dwd" / "station_splits.parquet"
+    time_splits: Path = data / "dwd" / "time_splits.parquet"
     data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
 

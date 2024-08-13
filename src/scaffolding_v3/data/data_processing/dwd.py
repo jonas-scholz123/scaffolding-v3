@@ -1,3 +1,4 @@
+# %%
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -11,6 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 from zipfile import ZipFile, BadZipFile
 from scaffolding_v3.config import DwdConfig, Paths
+
 from scaffolding_v3.data.dwd import get_dwd_data
 from mlbnb.file import ensure_parent_exists
 import geopandas as gpd
@@ -74,16 +76,17 @@ def load_station_df(fpath):
 
 
 def load_station_metadata(fpath):
-    meta_columns = [
-        "station_id",
-        "height",
-        "lat",
-        "lon",
-        "from_date",
-        "to_date",
-    ]
+    rename = {
+        "Stations_id": "station_id",
+        "von_datum": "from_date",
+        "bis_datum": "to_date",
+        "Stationshoehe": "height",
+        "Geogr.Breite": "lat",
+        "Geogr.Laenge": "lon",
+        "Stationsname": "station_name",
+    }
     df = pd.read_csv(fpath, delimiter=";", encoding="latin-1")
-    df.columns = meta_columns
+    df = df.rename(columns=rename)
 
     df["from_date"] = pd.to_datetime(df["from_date"], format="%Y%m%d")
 
@@ -123,11 +126,28 @@ def process_dwd():
     good_times = counts[counts["station_id"] > 400].index.unique()
     df = df[df["time"].isin(good_times)].reset_index(drop=True)  # type: ignore
 
-    # cache for faster loading in future.
-    ensure_parent_exists(paths.dwd)
     ensure_parent_exists(paths.dwd_meta)
-    df.to_feather(paths.dwd)
-    meta_df.to_feather(paths.dwd_meta)
+    meta_df.to_parquet(paths.dwd_meta)
+
+    chunks = []
+    chunk_size = 100000
+
+    meta_df = meta_df[["lat", "lon", "station_id", "from_date", "to_date"]]
+
+    # TODO: Get test station ids, test times, then split the df into train and test.
+
+    for chunk_idx in tqdm(range(0, len(df), chunk_size)):
+        chunk = df.iloc[chunk_idx : chunk_idx + chunk_size]
+        chunk = meta_df.merge(chunk, on="station_id")
+        chunk["date_str"] = pd.to_datetime(chunk["time"]).dt.strftime("%Y-%m-%d")
+        chunk = chunk.query("time <= to_date and time >= from_date")
+        chunk = chunk[["time", "lat", "lon", "t2m", "station_id"]]
+        chunk = chunk.set_index(["time", "station_id", "lat", "lon"])
+        chunks.append(chunk)
+
+    df = pd.concat(chunks)
+    ensure_parent_exists(paths.dwd)
+    df.to_parquet(paths.dwd)
 
 
 def download_value_stations():
@@ -164,7 +184,7 @@ def process_value_stations() -> None:
     geometry = gpd.points_from_xy(df["lon"], df["lat"])
     df = gpd.GeoDataFrame(df, geometry=geometry)
     df.crs = dwd_cfg.crs_str
-    df.to_feather(paths.value_stations)
+    df.to_parquet(paths.value_stations)
 
 
 def train_val_test_dts(dts):
@@ -230,28 +250,6 @@ def split(df, dts, station_ids) -> Tuple[pd.DataFrame]:
     return split, remainder  # type: ignore
 
 
-def get_test_station_ids():
-
-    df = pd.read_feather(paths.value_stations)
-
-    # Strip whitespace:
-    df["station_name"] = df["station_name"].str.strip()
-
-    geometry = gpd.points_from_xy(df["lon"], df["lat"])
-    df = gpd.GeoDataFrame(df, geometry=geometry)
-    df.crs = dwd_cfg.crs_str
-
-    # This is a projected crs, so we can use distance as a metric.
-    projected_crs = "EPSG:25832"
-    meta_df = gpd.read_feather(paths.dwd_meta)
-    meta_df = meta_df.to_crs(projected_crs)
-
-    df = df.to_crs(projected_crs)
-
-    test_station_ids = set(df.sjoin_nearest(meta_df)["station_id"])  # type: ignore
-    return test_station_ids
-
-
 def distance_matrix(gdf1, gdf2):
     # Station distance matrix:
     return gdf1.geometry.apply(lambda g: gdf2.distance(g))
@@ -265,7 +263,7 @@ def save_station_splits():
     sdf["set"] = "trainval"
     sdf["order"] = 0
 
-    test_station_ids = get_test_station_ids()
+    test_station_coordinates = get_test_station_coordinates()
 
     # Define test stations.
     sdf.loc[list(test_station_ids), "set"] = "test"
@@ -279,14 +277,19 @@ def save_station_splits():
     sdf = sdf.reset_index()
 
     ensure_parent_exists(paths.station_splits)
-    sdf.to_feather(paths.station_splits)
+    sdf.to_parquet(paths.station_splits)
 
 
 def save_datetime_splits():
     full = get_dwd_data(paths)
     dts = full.index.get_level_values("time").unique()
     train_dts, val_dts, test_dts = train_val_test_dts(dts)
-    logger.info("Splitting datetimes into {} train, {} val, {} test.", len(train_dts), len(val_dts), len(test_dts))
+    logger.info(
+        "Splitting datetimes into {} train, {} val, {} test.",
+        len(train_dts),
+        len(val_dts),
+        len(test_dts),
+    )
     df = pd.DataFrame(index=dts.sort_values())
     df["set"] = None
     df.loc[train_dts] = "train"
@@ -294,7 +297,7 @@ def save_datetime_splits():
     df.loc[test_dts] = "test"
     df = df.reset_index()
     ensure_parent_exists(paths.time_splits)
-    df.to_feather(paths.time_splits)
+    df.to_parquet(paths.time_splits)
 
 
 def extract_links() -> list[str]:
@@ -335,3 +338,33 @@ if __name__ == "__main__":
         save_station_splits()
         save_datetime_splits()
         logger.success("Data splits defined.")
+
+# %%
+
+
+def get_test_station_coordinates() -> pd.DataFrame:
+
+    df = pd.read_parquet(paths.value_stations)
+
+    # Strip whitespace:
+    df["station_name"] = df["station_name"].str.strip()
+
+    geometry = gpd.points_from_xy(df["lon"], df["lat"])
+    df = gpd.GeoDataFrame(df, geometry=geometry)
+    df.crs = dwd_cfg.crs_str
+
+    # This is a projected crs, so we can use distance as a metric.
+    projected_crs = "EPSG:25832"
+    meta_df = gpd.read_parquet(paths.dwd_meta)
+    meta_df = meta_df.to_crs(projected_crs)
+
+    df = df.to_crs(projected_crs)
+    joined = df.sjoin_nearest(meta_df, rsuffix="meta")
+    test_station_ids = joined["station_id"].unique()
+    test_station_coordinates = meta_df[meta_df["station_id"].isin(test_station_ids)][
+        ["lat", "lon"]
+    ]
+    return test_station_coordinates
+
+
+get_test_station_coordinates()
