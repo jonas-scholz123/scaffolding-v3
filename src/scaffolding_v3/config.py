@@ -3,6 +3,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+# This isn't perfect, the type annotation approach is nicer but doesn't work with omegaconf
+SKIP_KEYS = {
+    "output",
+    "start_from",
+    "download",
+    "_partial_",
+    "root",
+    "testloader",
+    "paths",
+}
+
 root = Path(__file__).resolve().parent.parent.parent
 ppu = 150
 
@@ -10,14 +21,12 @@ ppu = 150
 @dataclass
 class Paths:
     root: Path = root
-    data: Path = Path("/Volumes/Extreme SSD/scaffolding-v3/_data")
+    data: Path = root / "_data"
     raw_data: Path = data / "_raw"
     elevation: Path = data / "elevation" / "elevation.nc"
     dwd: Path = data / "dwd" / "dwd.parquet"
     dwd_meta: Path = data / "dwd" / "dwd_meta.parquet"
     value_stations: Path = data / "dwd" / "value_stations.parquet"
-    station_splits: Path = data / "dwd" / "station_splits.parquet"
-    time_splits: Path = data / "dwd" / "time_splits.parquet"
     data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
 
@@ -58,7 +67,7 @@ class DataloaderConfig:
 class TrainLoaderConfig(DataloaderConfig):
     batch_size: int = 1
     shuffle: bool = True
-    num_workers: int = 1
+    num_workers: int = 0
 
 
 @dataclass
@@ -79,8 +88,10 @@ class DwdDataProviderConfig(DataProviderConfig):
     num_times: int = 1000
     val_fraction: float = 0.1
     aux_ppu: int = ppu
-    cache: bool = True
+    cache: bool = False
     daily_averaged: bool = True
+    train_range: tuple[str, str] = ("2006-01-01", "2023-01-01")
+    test_range: tuple[str, str] = ("2023-01-01", "2024-01-01")
     paths: Paths = field(default_factory=Paths)
 
 
@@ -122,7 +133,7 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str = "cuda"
+    device: str = "cpu"
     dry_run: bool = True
     epochs: int = 80
     seed: int = 42
@@ -147,13 +158,24 @@ class Config:
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
 
 
-# This isn't perfect, the type annotation approach is nicer but doesn't work with omegaconf
-SKIP_KEYS = {
-    "output",
-    "start_from",
-    "download",
-    "_partial_",
-    "root",
-    "testloader",
-    "paths",
-}
+def load_config() -> None:
+    from hydra.core.config_store import ConfigStore
+
+    cs = ConfigStore.instance()
+    cs.store(
+        name="dev",
+        node=Config(
+            data=DataConfig(
+                data_provider=DwdDataProviderConfig(
+                    train_range=("2006-01-01", "2007-01-01")
+                )
+            ),
+        ),
+    )
+    cs.store(
+        name="prod",
+        node=Config(
+            execution=ExecutionConfig(dry_run=False),
+            output=OutputConfig(use_wandb=True),
+        ),
+    )

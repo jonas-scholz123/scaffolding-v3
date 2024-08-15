@@ -24,86 +24,95 @@ from mlbnb.paths import config_to_filepath
 from mlbnb.rand import seed_everything
 from mlbnb.metric_logger import MetricLogger
 
-from scaffolding_v3.config import SKIP_KEYS, CheckpointOccasion, Config, ExecutionConfig, OutputConfig
+from scaffolding_v3.config import (
+    SKIP_KEYS,
+    CheckpointOccasion,
+    Config,
+    ExecutionConfig,
+    load_config,
+)
 
-cs = ConfigStore.instance()
-cs.store(name="dev", node=Config)
-cs.store(name="prod", node=Config(
-    execution=ExecutionConfig(dry_run=False),
-    output=OutputConfig(use_wandb=True)
-    ))
+load_config()
+
 
 @hydra.main(version_base=None, config_name="dev", config_path="../..")
 def main(cfg: Config):
-    _configure_outputs(cfg)
+    try:
+        _configure_outputs(cfg)
 
-    logger.info(OmegaConf.to_yaml(cfg))
+        logger.info(OmegaConf.to_yaml(cfg))
 
-    if cfg.execution.device == "cuda":
-        set_gpu_default_device()
+        if cfg.execution.device == "cuda":
+            set_gpu_default_device()
 
-    seed_everything(cfg.execution.seed)
-    generator = torch.Generator(device=cfg.execution.device).manual_seed(
-        cfg.execution.seed
-    )
+        seed_everything(cfg.execution.seed)
+        generator = torch.Generator(device=cfg.execution.device).manual_seed(
+            cfg.execution.seed
+        )
 
-    logger.info("Instantiating dependencies")
+        logger.info("Instantiating dependencies")
 
-    data_provider = hydra.utils.instantiate(cfg.data.data_provider)
-    trainset = data_provider.get_train_data()
-    valset = data_provider.get_val_data()
-    collate_fn = data_provider.get_collate_fn()
+        data_provider = hydra.utils.instantiate(cfg.data.data_provider)
+        trainset = data_provider.get_train_data()
+        valset = data_provider.get_val_data()
+        collate_fn = data_provider.get_collate_fn()
 
+        train_loader = hydra.utils.instantiate(
+            cfg.data.trainloader,
+            trainset,
+            generator=generator,
+            collate_fn=collate_fn,
+        )
+        val_loader = hydra.utils.instantiate(
+            cfg.data.testloader,
+            valset,
+            generator=generator,
+            collate_fn=collate_fn,
+        )
 
-    train_loader = hydra.utils.instantiate(
-        cfg.data.trainloader,
-        trainset,
-        generator=generator,
-        collate_fn=collate_fn,
-    )
-    val_loader = hydra.utils.instantiate(
-        cfg.data.testloader,
-        valset,
-        generator=generator,
-        collate_fn=collate_fn,
-    )
+        model = hydra.utils.instantiate(
+            cfg.model, trainset.data_processor, trainset.task_loader
+        )
 
-    model = hydra.utils.instantiate(
-        cfg.model, trainset.data_processor, trainset.task_loader
-    )
+        optimizer = hydra.utils.instantiate(cfg.optimizer, model.model.parameters())
 
-    optimizer = hydra.utils.instantiate(cfg.optimizer, model.model.parameters())
+        scheduler = (
+            hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
+        )
 
-    scheduler = (
-        hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
-    )
+        path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
+        logger.info("Experiment path: {}", path)
+        checkpoint_manager = CheckpointManager(path)
 
-    path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
-    logger.info("Experiment path: {}", path)
-    checkpoint_manager = CheckpointManager(path)
+        logger.info("Finished instantiating dependencies")
 
-    logger.info("Finished instantiating dependencies")
+        start_epoch = initial_setup(
+            cfg, checkpoint_manager, model, optimizer, generator, scheduler
+        )
 
-    start_epoch = initial_setup(cfg, checkpoint_manager, model, optimizer, generator, scheduler)
-
-    train_loop(
-        start_epoch,
-        cfg,
-        checkpoint_manager,
-        model,
-        optimizer,
-        train_loader,
-        val_loader,
-        generator,
-        scheduler,
-    )
+        train_loop(
+            start_epoch,
+            cfg,
+            checkpoint_manager,
+            model,
+            optimizer,
+            train_loader,
+            val_loader,
+            generator,
+            scheduler,
+        )
+    except Exception as e:
+        logger.exception("An error occurred during training: {}", e)
+        raise e
 
 
 def _configure_outputs(cfg: Config):
     load_dotenv()
     logger.configure(handlers=[{"sink": sys.stdout, "level": cfg.output.log_level}])
 
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.protobuf")
+    warnings.filterwarnings(
+        "ignore", category=DeprecationWarning, module="google.protobuf"
+    )
 
     if cfg.output.use_wandb:
         # Opt in to new wandb backend
@@ -172,7 +181,7 @@ def train_loop(
                 generator,
                 scheduler,
             )
-        
+
         if val_metrics["val_loss"] < best_val_loss:
             best_val_loss = val_metrics["val_loss"]
             checkpoint_manager.save_checkpoint(
