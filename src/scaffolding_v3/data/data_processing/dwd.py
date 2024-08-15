@@ -134,8 +134,6 @@ def process_dwd():
 
     meta_df = meta_df[["lat", "lon", "station_id", "from_date", "to_date"]]
 
-    # TODO: Get test station ids, test times, then split the df into train and test.
-
     for chunk_idx in tqdm(range(0, len(df), chunk_size)):
         chunk = df.iloc[chunk_idx : chunk_idx + chunk_size]
         chunk = meta_df.merge(chunk, on="station_id")
@@ -187,19 +185,6 @@ def process_value_stations() -> None:
     df.to_parquet(paths.value_stations)
 
 
-def split(df, dts, station_ids) -> Tuple[pd.DataFrame]:
-    """
-    Split a dataframe by BOTH datetimes and station ids.
-
-    Returns: (split, remainder): pd.DataFrame
-    """
-
-    split = df.query("station_id in @station_ids and time in @dts")
-    remainder = df.query("station_id not in @station_ids and time not in @dts")
-
-    return split, remainder  # type: ignore
-
-
 def distance_matrix(gdf1, gdf2):
     # Station distance matrix:
     return gdf1.geometry.apply(lambda g: gdf2.distance(g))
@@ -228,26 +213,6 @@ def save_station_splits():
 
     ensure_parent_exists(paths.station_splits)
     sdf.to_parquet(paths.station_splits)
-
-
-def save_datetime_splits():
-    full = get_dwd_data(paths)
-    dts = full.index.get_level_values("time").unique()
-    train_dts, val_dts, test_dts = train_val_test_dts(dts)
-    logger.info(
-        "Splitting datetimes into {} train, {} val, {} test.",
-        len(train_dts),
-        len(val_dts),
-        len(test_dts),
-    )
-    df = pd.DataFrame(index=dts.sort_values())
-    df["set"] = None
-    df.loc[train_dts] = "train"
-    df.loc[val_dts] = "val"
-    df.loc[test_dts] = "test"
-    df = df.reset_index()
-    ensure_parent_exists(paths.time_splits)
-    df.to_parquet(paths.time_splits)
 
 
 def extract_links() -> list[str]:
