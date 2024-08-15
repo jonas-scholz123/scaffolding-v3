@@ -187,56 +187,6 @@ def process_value_stations() -> None:
     df.to_parquet(paths.value_stations)
 
 
-def train_val_test_dts(dts):
-    """
-    This follows the google paper's sampling strategy.
-    """
-    days = pd.Series(dts).dt.floor("D").unique()
-
-    train, val, test = [], [], []
-
-    # 19 days.
-    train_duration = 19
-    # 2 days.
-    val_duration = 2
-    # 2 days.
-    test_duration = 2
-
-    # 2 days skipped at borders.
-    skip_duration = 2
-
-    i = 0
-    while i < len(days):
-        # Add training datetimes.
-        train += days[i : i + train_duration]
-        i += train_duration + skip_duration
-        if i >= len(days):
-            break
-
-        val += days[i : i + val_duration]
-        i += val_duration + skip_duration
-        if i >= len(days):
-            break
-
-        test += days[i : i + test_duration]
-        i += test_duration + skip_duration
-        if i >= len(days):
-            break
-
-    # Make sure there's no overlap.
-    assert (
-        set(train).isdisjoint(val)
-        and set(val).isdisjoint(test)
-        and set(test).isdisjoint(train)
-    )
-
-    train = dts[dts.floor("D").isin(train)]
-    val = dts[dts.floor("D").isin(val)]
-    test = dts[dts.floor("D").isin(test)]
-
-    return train, val, test
-
-
 def split(df, dts, station_ids) -> Tuple[pd.DataFrame]:
     """
     Split a dataframe by BOTH datetimes and station ids.
@@ -263,7 +213,7 @@ def save_station_splits():
     sdf["set"] = "trainval"
     sdf["order"] = 0
 
-    test_station_coordinates = get_test_station_coordinates()
+    test_station_ids = get_test_station_ids()
 
     # Define test stations.
     sdf.loc[list(test_station_ids), "set"] = "test"
@@ -321,6 +271,42 @@ def extract_links() -> list[str]:
         )
 
 
+def annotate_test_stations(df: pd.DataFrame, meta: pd.DataFrame) -> None:
+    logger.info("Annotating test stations.")
+    test_station_ids = get_test_station_ids()
+    df["is_test_station"] = df.index.get_level_values("station_id").isin(
+        test_station_ids
+    )
+    df.to_parquet(paths.dwd)
+
+    test_station_ids = get_test_station_ids()
+    meta["is_test_station"] = meta["station_id"].isin(test_station_ids)
+
+    logger.success("Test stations annotated.")
+
+
+def get_test_station_ids() -> set[int]:
+
+    value_df = pd.read_parquet(paths.value_stations)
+
+    # Strip whitespace:
+    value_df["station_name"] = value_df["station_name"].str.strip()
+
+    geometry = gpd.points_from_xy(value_df["lon"], value_df["lat"])
+    value_df = gpd.GeoDataFrame(value_df, geometry=geometry)
+    value_df.crs = dwd_cfg.crs_str
+
+    # This is a projected crs, so we can use distance as a metric.
+    projected_crs = "EPSG:25832"
+    meta_df = gpd.read_parquet(paths.dwd_meta)
+    meta_df = meta_df.to_crs(projected_crs)
+
+    value_df = value_df.to_crs(projected_crs)
+    joined = value_df.sjoin_nearest(meta_df, rsuffix="meta")
+    test_station_ids = set(joined["station_id"])
+    return test_station_ids
+
+
 if __name__ == "__main__":
     if not paths.dwd.exists() or not paths.dwd_meta.exists():
         logger.info("Downloading and processing DWD data.")
@@ -333,38 +319,9 @@ if __name__ == "__main__":
         download_value_stations()
         process_value_stations()
         logger.success("Value stations downloaded and processed.")
-    if not paths.station_splits.exists() or not paths.time_splits.exists():
-        logger.info("Defining data splits.")
-        save_station_splits()
-        save_datetime_splits()
-        logger.success("Data splits defined.")
+    df = get_dwd_data(paths, columns=None)
+    meta = pd.read_parquet(paths.dwd_meta)
+    if "is_test_station" not in df.columns:
+        annotate_test_stations(df, meta)
 
 # %%
-
-
-def get_test_station_coordinates() -> pd.DataFrame:
-
-    df = pd.read_parquet(paths.value_stations)
-
-    # Strip whitespace:
-    df["station_name"] = df["station_name"].str.strip()
-
-    geometry = gpd.points_from_xy(df["lon"], df["lat"])
-    df = gpd.GeoDataFrame(df, geometry=geometry)
-    df.crs = dwd_cfg.crs_str
-
-    # This is a projected crs, so we can use distance as a metric.
-    projected_crs = "EPSG:25832"
-    meta_df = gpd.read_parquet(paths.dwd_meta)
-    meta_df = meta_df.to_crs(projected_crs)
-
-    df = df.to_crs(projected_crs)
-    joined = df.sjoin_nearest(meta_df, rsuffix="meta")
-    test_station_ids = joined["station_id"].unique()
-    test_station_coordinates = meta_df[meta_df["station_id"].isin(test_station_ids)][
-        ["lat", "lon"]
-    ]
-    return test_station_coordinates
-
-
-get_test_station_coordinates()
