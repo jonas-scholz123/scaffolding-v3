@@ -117,7 +117,7 @@ def _configure_outputs(cfg: Config):
     if cfg.output.use_wandb:
         # Opt in to new wandb backend
         wandb.require("core")
-        wandb.init(project="scaffolding_v3", config=dict(cfg), dir=cfg.output.out_dir)  # type: ignore
+        wandb.init(project="scaffolding_v3", config=OmegaConf.to_container(cfg), dir=cfg.output.out_dir)  # type: ignore
 
 
 def initial_setup(
