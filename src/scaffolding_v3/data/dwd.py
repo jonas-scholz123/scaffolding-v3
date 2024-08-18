@@ -93,10 +93,12 @@ class DwdStationDataset(Dataset):
         times: list[pd.Timestamp],
         data_processor: DataProcessor,
         eval_mode: bool,
+        include_context_in_target: bool,
     ):
         self.times = times
         self.eval_mode = eval_mode
         self.data_processor = data_processor
+        self.include_context_in_target = include_context_in_target
         context: pd.DataFrame = self.data_processor(raw_context)  # type: ignore
         target: pd.DataFrame = self.data_processor(raw_target)  # type: ignore
         aux: xr.Dataset = self.data_processor(raw_aux)  # type: ignore
@@ -105,9 +107,9 @@ class DwdStationDataset(Dataset):
         self.task_loader = TaskLoader(
             context=[context, aux],
             target=[target],
-            time_freq="h",
             discrete_xarray_sampling=True,  # TODO: into config
             aux_at_targets=high_res_aux,
+            links=[(0, 0)],
         )
         self.task_loader.load_dask()
 
@@ -123,11 +125,19 @@ class DwdStationDataset(Dataset):
 
         context_frac = np.random.rand()
 
-        return self.task_loader(
-            time,
-            context_sampling=[context_frac, "all"],
-            target_sampling="all",
-        )
+        if self.include_context_in_target:
+            return self.task_loader(
+                time,
+                context_sampling=[context_frac, "all"],
+                target_sampling="all",
+            )
+        else:
+            return self.task_loader(
+                time,
+                context_sampling=["split", "all"],
+                target_sampling="split",
+                split_frac=context_frac,
+            )
 
 
 class DwdDataProvider(DataProvider):
@@ -138,8 +148,10 @@ class DwdDataProvider(DataProvider):
         num_times: int,
         val_fraction: float,
         aux_ppu: int,
+        hires_aux_ppu: int,
         cache: bool,
         daily_averaged: bool,
+        include_context_in_target: bool,
         train_range: tuple[str, str],
         test_range: tuple[str, str],
     ) -> None:
@@ -151,9 +163,10 @@ class DwdDataProvider(DataProvider):
         self.train_range = train_range
         self.test_range = test_range
         self.daily_averaged = daily_averaged
+        self.include_context_in_target = include_context_in_target
 
         self.elevation = load_elevation_data(paths, aux_ppu)
-        self.high_res_elevation = load_elevation_data(paths, 500)
+        self.high_res_elevation = load_elevation_data(paths, hires_aux_ppu)
         self.data_processor = get_data_processor(paths)
 
         self.trainset = None
@@ -256,6 +269,7 @@ class DwdDataProvider(DataProvider):
         target: pd.DataFrame,
         times: Iterable[pd.Timestamp],
         eval_mode: bool,
+        include_context_in_target: bool = False,
     ) -> Dataset:
         context = to_deepsensor_df(context)
         target = to_deepsensor_df(target)
@@ -268,9 +282,11 @@ class DwdDataProvider(DataProvider):
             list(times),
             self.data_processor,
             eval_mode,
+            include_context_in_target,
         )
 
-        if self.cache:
+        # Always cache eval datasets to remove randomness
+        if self.cache or eval_mode:
             return CachedDataset(dataset)
         return dataset
 

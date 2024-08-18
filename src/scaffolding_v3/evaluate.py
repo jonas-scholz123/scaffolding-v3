@@ -1,11 +1,13 @@
 # %%
 import hydra
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cf
 import deepsensor.torch
 import deepsensor.plot
+from deepsensor.train.train import set_gpu_default_device
 from hydra.core.config_store import ConfigStore
 from mlbnb.paths import config_to_filepath
 from mlbnb.checkpoint import CheckpointManager
@@ -14,6 +16,8 @@ from omegaconf import DictConfig
 from scaffolding_v3.data.elevation import load_elevation_data
 from scaffolding_v3.data.dwd import get_data_processor
 from scaffolding_v3.config import (
+    DataConfig,
+    DwdDataProviderConfig,
     Paths,
     Config,
     ExecutionConfig,
@@ -40,15 +44,6 @@ params = {
 import matplotlib as mpl
 
 mpl.rcParams.update(params)
-
-cs = ConfigStore.instance()
-cs.store(name="dev", node=Config)
-cs.store(
-    name="prod",
-    node=Config(
-        execution=ExecutionConfig(dry_run=False), output=OutputConfig(use_wandb=True)
-    ),
-)
 
 
 def gen_test_fig(
@@ -158,6 +153,12 @@ def gen_test_fig(
         ax.coastlines()
         if extent is not None:
             ax.set_extent(extent)
+
+        ax.set_xticks(np.linspace(extent[0], extent[1], num=5), crs=crs)
+        ax.set_yticks(np.linspace(extent[2], extent[3], num=5), crs=crs)
+        ax.set_xticklabels(np.linspace(extent[0], extent[1], num=5), fontsize=fontsize)
+        ax.set_yticklabels(np.linspace(extent[2], extent[3], num=5), fontsize=fontsize)
+
     if task is not None:
         deepsensor.plot.offgrid_context(axes, task, data_processor, task_loader)
     return fig, axes
@@ -167,9 +168,13 @@ cfg = DictConfig(
     Config(
         execution=ExecutionConfig(dry_run=False),
         output=OutputConfig(use_wandb=True),
+        data=DataConfig(data_provider=DwdDataProviderConfig(daily_averaged=False)),
     )
 )
 paths = Paths()
+
+if cfg.execution.device == "cuda":
+    set_gpu_default_device()
 
 data_processor = get_data_processor(paths)
 
@@ -183,24 +188,37 @@ task_loader = test_dataset.task_loader
 model = hydra.utils.instantiate(cfg.model, data_processor, task_loader)
 
 path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
+print(path)
 checkpoint_manager = CheckpointManager(path)
 
-hires_aux_raw_ds = load_elevation_data(paths, 500)
+hires_aux_raw_ds = load_elevation_data(paths, 2000)
 
 # %%
 
-model = hydra.utils.instantiate(cfg.model, data_processor, task_loader)
 checkpoint = checkpoint_manager.load_checkpoint("best")
 model.model.load_state_dict(checkpoint.model_state)
 
-for context_sampling in [20, 100, "all"]:
+min_lat, max_lat = 47.5, 55
+min_lon, max_lon = 6, 15
+
+X_t = hires_aux_raw_ds.sel(lat=slice(max_lat, min_lat), lon=slice(min_lon, max_lon))
+# X_t = X_t.coarsen(lat=2, lon=2, boundary="trim").mean()
+
+if cfg.data.data_provider.daily_averaged:
+    test_time = pd.Timestamp("2023-07-05")
+else:
+    test_time = pd.Timestamp("2023-07-05 04:00:00")
+
+# for context_sampling in [20, 100, "all"]:
+for context_sampling in [1]:
     test_task = task_loader(
-        test_dataset.times[0],
+        test_time,
         context_sampling=[context_sampling, "all"],
         target_sampling="all",
     )
     pred = model.predict(
-        test_task, X_t=hires_aux_raw_ds.sel(lat=slice(55, 47.5), lon=slice(6, 15))
+        test_task,
+        X_t=X_t,
     )["t2m"]
 
     mean_ds, std_ds = pred["mean"], pred["std"]
@@ -214,9 +232,45 @@ for context_sampling in [20, 100, "all"]:
         add_colorbar=True,
         var_cbar_label="2m temperature [°C]",
         std_cbar_label="std dev [°C]",
-        std_clim=(1, 3),
-        var_clim=(-4.0, 10.0),
-        extent=(6, 15, 47.5, 55),
+        # std_clim=(1, 3),
+        # var_clim=(0, 10),
+        extent=(min_lon, max_lon, min_lat, max_lat),
         figsize=(20, 20 / 3),
     )
+    plt.show()
 # %%
+latmax = 48.5
+latmin = 47.5
+lonmax = 13
+lonmin = 11
+
+# latmin = 52.5
+# latmax = 53.5
+# lonmin = 8
+# lonmax = 9
+fig, axes = gen_test_fig(
+    # era5_raw_ds.sel(time=test_task['time'], lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())),
+    None,
+    mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
+    std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
+    task=test_task,
+    add_colorbar=True,
+    var_cbar_label="2m temperature [°C]",
+    std_cbar_label="std dev [°C]",
+    extent=(lonmin, lonmax, latmin, latmax),
+    figsize=(20, 20 / 3),
+)
+# %%
+hires_aux_raw_ds = load_elevation_data(paths, 2000)
+hires_aux_raw_ds["height"].sel(
+    lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)
+).plot()
+# %%
+from deepsensor.plot import receptive_field
+
+receptive_field(
+    model.model.receptive_field,
+    data_processor,
+    crs,
+    extent=(min_lon, max_lon, min_lat, max_lat),
+)
