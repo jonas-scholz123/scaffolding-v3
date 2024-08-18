@@ -12,6 +12,7 @@ SKIP_KEYS = {
     "root",
     "testloader",
     "paths",
+    "epochs",
 }
 
 root = Path(__file__).resolve().parent.parent.parent
@@ -35,7 +36,7 @@ class Paths:
 class ModelConfig:
     _target_: str = "deepsensor.model.ConvNP"
     internal_density: int = ppu
-    unet_channels: tuple = (64,) * 4
+    unet_channels: tuple = (64,) * 5
     aux_t_mlp_layers: tuple = (64,) * 3
     likelihood: str = "cnp"
 
@@ -85,13 +86,15 @@ class DataProviderConfig:
 class DwdDataProviderConfig(DataProviderConfig):
     _target_: str = "data.dwd.DwdDataProvider"
     num_stations: int = 500
-    num_times: int = 1000
+    num_times: int = 10000
     val_fraction: float = 0.1
     aux_ppu: int = ppu
+    hires_aux_ppu: int = 2000
     cache: bool = False
-    daily_averaged: bool = True
+    daily_averaged: bool = False
     train_range: tuple[str, str] = ("2006-01-01", "2023-01-01")
     test_range: tuple[str, str] = ("2023-01-01", "2024-01-01")
+    include_context_in_target: bool = False
     paths: Paths = field(default_factory=Paths)
 
 
@@ -122,8 +125,8 @@ class SchedulerConfig:
 @dataclass
 class StepLRConfig(SchedulerConfig):
     _target_: str = "torch.optim.lr_scheduler.StepLR"
-    step_size: int = 1
-    gamma: float = 0.7
+    step_size: int = 10
+    gamma: float = 0.5
 
 
 class CheckpointOccasion(Enum):
@@ -133,7 +136,7 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str = "cpu"
+    device: str = "cuda"
     dry_run: bool = True
     epochs: int = 80
     seed: int = 42
