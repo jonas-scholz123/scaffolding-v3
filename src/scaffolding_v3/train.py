@@ -34,7 +34,6 @@ from scaffolding_v3.config import (
 
 load_config()
 
-
 @hydra.main(version_base=None, config_name="dev", config_path="../..")
 def main(cfg: Config):
     try:

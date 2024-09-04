@@ -36,7 +36,7 @@ class Paths:
 class ModelConfig:
     _target_: str = "deepsensor.model.ConvNP"
     internal_density: int = ppu
-    unet_channels: tuple = (64,) * 5
+    unet_channels: tuple = (64,) * 4
     aux_t_mlp_layers: tuple = (64,) * 3
     likelihood: str = "cnp"
 
@@ -79,12 +79,6 @@ class TestLoaderConfig(DataloaderConfig):
 
 @dataclass
 class DataProviderConfig:
-    pass
-
-
-@dataclass
-class DwdDataProviderConfig(DataProviderConfig):
-    _target_: str = "data.dwd.DwdDataProvider"
     num_stations: int = 500
     num_times: int = 10000
     val_fraction: float = 0.1
@@ -95,7 +89,13 @@ class DwdDataProviderConfig(DataProviderConfig):
     train_range: tuple[str, str] = ("2006-01-01", "2023-01-01")
     test_range: tuple[str, str] = ("2023-01-01", "2024-01-01")
     include_context_in_target: bool = False
+    include_aux_at_target: bool = False
     paths: Paths = field(default_factory=Paths)
+
+
+@dataclass
+class DwdDataProviderConfig(DataProviderConfig):
+    _target_: str = "data.dwd.DwdDataProvider"
 
 
 @dataclass

@@ -8,7 +8,6 @@ import cartopy.feature as cf
 import deepsensor.torch
 import deepsensor.plot
 from deepsensor.train.train import set_gpu_default_device
-from hydra.core.config_store import ConfigStore
 from mlbnb.paths import config_to_filepath
 from mlbnb.checkpoint import CheckpointManager
 from omegaconf import DictConfig
@@ -168,7 +167,11 @@ cfg = DictConfig(
     Config(
         execution=ExecutionConfig(dry_run=False),
         output=OutputConfig(use_wandb=True),
-        data=DataConfig(data_provider=DwdDataProviderConfig(daily_averaged=False)),
+        data=DataConfig(
+            data_provider=DwdDataProviderConfig(
+                daily_averaged=False, include_context_in_target=False
+            )
+        ),
     )
 )
 paths = Paths()
@@ -202,15 +205,15 @@ min_lat, max_lat = 47.5, 55
 min_lon, max_lon = 6, 15
 
 X_t = hires_aux_raw_ds.sel(lat=slice(max_lat, min_lat), lon=slice(min_lon, max_lon))
-# X_t = X_t.coarsen(lat=2, lon=2, boundary="trim").mean()
+X_t = X_t.coarsen(lat=2, lon=2, boundary="trim").mean()
 
 if cfg.data.data_provider.daily_averaged:
-    test_time = pd.Timestamp("2023-07-05")
+    test_time = pd.Timestamp("2023-02-05")
 else:
-    test_time = pd.Timestamp("2023-07-05 04:00:00")
+    test_time = pd.Timestamp("2023-02-05 04:00:00")
 
 # for context_sampling in [20, 100, "all"]:
-for context_sampling in [1]:
+for context_sampling in ["all"]:
     test_task = task_loader(
         test_time,
         context_sampling=[context_sampling, "all"],
@@ -239,15 +242,20 @@ for context_sampling in [1]:
     )
     plt.show()
 # %%
-latmax = 48.5
-latmin = 47.5
-lonmax = 13
-lonmin = 11
+#latmax = 48.5
+#latmin = 47.5
+#lonmax = 13
+#lonmin = 11
 
-# latmin = 52.5
-# latmax = 53.5
-# lonmin = 8
-# lonmax = 9
+latmin = 51.0
+latmax = 53
+lonmin = 10
+lonmax = 12
+
+#latmin = 51.0
+#latmax = 53
+#lonmin = 7
+#lonmax = 9
 fig, axes = gen_test_fig(
     # era5_raw_ds.sel(time=test_task['time'], lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())),
     None,
@@ -260,17 +268,5 @@ fig, axes = gen_test_fig(
     extent=(lonmin, lonmax, latmin, latmax),
     figsize=(20, 20 / 3),
 )
-# %%
-hires_aux_raw_ds = load_elevation_data(paths, 2000)
-hires_aux_raw_ds["height"].sel(
-    lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)
-).plot()
-# %%
-from deepsensor.plot import receptive_field
 
-receptive_field(
-    model.model.receptive_field,
-    data_processor,
-    crs,
-    extent=(min_lon, max_lon, min_lat, max_lat),
-)
+# %%
