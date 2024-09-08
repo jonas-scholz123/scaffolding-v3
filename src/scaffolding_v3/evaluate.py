@@ -23,6 +23,7 @@ from scaffolding_v3.config import (
     OutputConfig,
     SKIP_KEYS,
 )
+# %%
 
 
 fontsize = 14
@@ -242,15 +243,15 @@ for context_sampling in ["all"]:
     )
     plt.show()
 # %%
-#latmax = 48.5
-#latmin = 47.5
-#lonmax = 13
-#lonmin = 11
+latmax = 48.5
+latmin = 47.5
+lonmax = 13
+lonmin = 11
 
-latmin = 51.0
-latmax = 53
-lonmin = 10
-lonmax = 12
+#latmin = 51.0
+#latmax = 53
+#lonmin = 10
+#lonmax = 12
 
 #latmin = 51.0
 #latmax = 53

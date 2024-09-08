@@ -27,6 +27,7 @@ class Paths:
     elevation: Path = data / "elevation" / "elevation.nc"
     dwd: Path = data / "dwd" / "dwd.parquet"
     dwd_meta: Path = data / "dwd" / "dwd_meta.parquet"
+    era5: Path = data / "era5" / "era5_t2m.nc"
     value_stations: Path = data / "dwd" / "value_stations.parquet"
     data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
@@ -108,6 +109,20 @@ class DwdConfig:
 @dataclass
 class SrtmConfig:
     srtm_url = "https://www.opendem.info/downloads/srtm_germany_dtm.zip"
+
+@dataclass
+class Era5Config:
+    era5_url = "https://cds.climate.copernicus.eu/api/v2"
+
+
+# Germany bounding box
+@dataclass
+class GeoConfig:
+    min_lat: float = 47.2
+    max_lat: float = 54.95
+    min_lon: float = 5.8
+    max_lon: float = 15.05
+    crs_str: str = "EPSG:4326"
 
 
 @dataclass
