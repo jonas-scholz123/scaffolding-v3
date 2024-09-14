@@ -7,9 +7,14 @@ WANDB_API_KEY=<Your API Key>
 ```
 
 #### Non-python dependencies
-Eccods:
+Eccods (linux):
 ```
 sudo apt install libeccodes-dev
+```
+
+Eccodes (mac):
+```
+brew install eccodes
 ```
 
 #### ERA5 Data

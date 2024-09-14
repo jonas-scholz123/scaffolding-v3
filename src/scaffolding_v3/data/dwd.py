@@ -83,37 +83,21 @@ def to_deepsensor_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index().set_index(["time", "lat", "lon"])[["t2m"]]  # type: ignore
 
 
-class DwdStationDataset(Dataset):
+# Combines a primary datasource, like DWD, with secondary datasources
+# like elevation, land use, etc.
+class CombinedDataset(Dataset):
     def __init__(
         self,
-        raw_context: pd.DataFrame,
-        raw_target: pd.DataFrame,
-        raw_aux: xr.Dataset,
-        hires_raw_aux: xr.Dataset,
+        task_loader: TaskLoader,
         times: list[pd.Timestamp],
-        data_processor: DataProcessor,
-        eval_mode: bool,
         include_context_in_target: bool,
-        include_aux_at_target: bool,
-    ):
+        eval_mode: bool,
+    ) -> None:
+        self.task_loader = task_loader
         self.times = times
-        self.eval_mode = eval_mode
-        self.data_processor = data_processor
         self.include_context_in_target = include_context_in_target
-        context: pd.DataFrame = self.data_processor(raw_context)  # type: ignore
-        target: pd.DataFrame = self.data_processor(raw_target)  # type: ignore
-        aux: xr.Dataset = self.data_processor(raw_aux)  # type: ignore
-        hires_aux: xr.Dataset = self.data_processor(hires_raw_aux)  # type: ignore
+        self.eval_mode = eval_mode
 
-        aux_at_target = hires_aux if include_aux_at_target else None
-
-        self.task_loader = TaskLoader(
-            context=[context, aux],
-            target=[target],
-            discrete_xarray_sampling=True,  # TODO: into config
-            aux_at_targets=hires_aux,
-            links=[(0, 0)],
-        )
         self.task_loader.load_dask()
 
     def __len__(self):
@@ -198,18 +182,18 @@ class DwdDataProvider(DataProvider):
 
         self._ensure_enough_data(df)
 
-        stations: pd.Series = df.reset_index()["station_id"].drop_duplicates() # type: ignore
+        stations: pd.Series = df.reset_index()["station_id"].drop_duplicates()  # type: ignore
 
         val_stations, train_stations = split(stations, self.val_fraction)
 
-        times: pd.Series = df.reset_index()["time"].drop_duplicates() # type: ignore
+        times: pd.Series = df.reset_index()["time"].drop_duplicates()  # type: ignore
         num_train_times = int(self.num_times * (1 - self.val_fraction))
 
         # Want a representative sample of times but avoid close times
         # to prevent leakage
         times = sample(times, self.num_times).sort_values()
-        train_times: pd.Series = times[:num_train_times] # type: ignore
-        val_times: pd.Series = times[num_train_times:] # type: ignore
+        train_times: pd.Series = times[:num_train_times]  # type: ignore
+        val_times: pd.Series = times[num_train_times:]  # type: ignore
 
         trainset = self._split_into_dataset(
             df, train_stations, train_stations, train_times, False
@@ -220,8 +204,8 @@ class DwdDataProvider(DataProvider):
 
         logger.info(
             "Split data into train: {} val: {}",
-            len(trainset), # type: ignore
-            len(valset), # type: ignore
+            len(trainset),  # type: ignore
+            len(valset),  # type: ignore
         )
 
         return trainset, valset
@@ -270,24 +254,35 @@ class DwdDataProvider(DataProvider):
 
     def _to_dataset(
         self,
-        context: pd.DataFrame,
-        target: pd.DataFrame,
+        raw_context: pd.DataFrame,
+        raw_target: pd.DataFrame,
         times: Iterable[pd.Timestamp],
-        eval_mode: bool
+        eval_mode: bool,
     ) -> Dataset:
-        context = to_deepsensor_df(context)
-        target = to_deepsensor_df(target)
+        context = to_deepsensor_df(raw_context)
+        target = to_deepsensor_df(raw_target)
 
-        dataset = DwdStationDataset(
-            context,
-            target,
-            self.elevation,
-            self.high_res_elevation,
+        context: pd.DataFrame = self.data_processor(context)  # type: ignore
+        target: pd.DataFrame = self.data_processor(target)  # type: ignore
+
+        aux: xr.Dataset = self.data_processor(self.elevation)  # type: ignore
+        hires_aux: xr.Dataset = self.data_processor(self.high_res_elevation)  # type: ignore
+
+        aux_at_target = hires_aux if self.include_aux_at_target else None
+
+        task_loader = TaskLoader(
+            context=[raw_context, aux],
+            target=[raw_target],
+            discrete_xarray_sampling=True,  # TODO: into config
+            aux_at_targets=hires_aux,
+            links=[(0, 0)],
+        )
+
+        dataset = CombinedDataset(
+            task_loader,
             list(times),
-            self.data_processor,
-            eval_mode,
             self.include_context_in_target,
-            self.include_aux_at_target,
+            eval_mode,
         )
 
         # Always cache eval datasets to remove randomness

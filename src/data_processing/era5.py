@@ -14,7 +14,12 @@ load_dotenv()
 
 key = os.getenv("CDS_API_KEY")
 client = cdsapi.Client(key=key, url=era5_config.era5_url)
-coords = [geo_config.max_lat, geo_config.min_lon, geo_config.min_lat, geo_config.max_lon]
+coords = [
+    geo_config.max_lat,
+    geo_config.min_lon,
+    geo_config.min_lat,
+    geo_config.max_lon,
+]
 
 raw_path = paths.raw_data / "era5" / "era5_t2m.grib"
 
@@ -23,26 +28,26 @@ ensure_parent_exists(paths.era5)
 # %%
 
 client.retrieve(
-    'reanalysis-era5-single-levels',
+    "reanalysis-era5-single-levels",
     {
-        'product_type': 'reanalysis',
-        'variable': '2m_temperature',
-        'year': '2023',
-        'month': '02',
-        'day': '05',
-        'time': '04:00',
+        "product_type": "reanalysis",
+        "variable": "2m_temperature",
+        "year": "2023",
+        "month": "02",
+        "day": "05",
+        "time": "04:00",
         #'year': [
         #    '2012', '2013', '2014',
         #    '2015', '2016', '2017',
         #    '2018', '2019', '2020',
         #    '2021', '2022',
-        #],
+        # ],
         #'month': [
         #    '01', '02', '03',
         #    '04', '05', '06',
         #    '07', '08', '09',
         #    '10', '11', '12',
-        #],
+        # ],
         #'day': [
         #    '01', '02', '03',
         #    '04', '05', '06',
@@ -55,7 +60,7 @@ client.retrieve(
         #    '25', '26', '27',
         #    '28', '29', '30',
         #    '31',
-        #],
+        # ],
         #'time': [
         #    '00:00', '01:00', '02:00',
         #    '03:00', '04:00', '05:00',
@@ -65,11 +70,12 @@ client.retrieve(
         #    '15:00', '16:00', '17:00',
         #    '18:00', '19:00', '20:00',
         #    '21:00', '22:00', '23:00',
-        #],
-        'area': coords,
-        'format': 'grib',
+        # ],
+        "area": coords,
+        "format": "grib",
     },
-    str(raw_path))
+    str(raw_path),
+)
 
 # %%
 ds = xr.open_dataset(raw_path, engine="cfgrib")
