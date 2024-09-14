@@ -1,6 +1,15 @@
-from abc import abstractmethod, ABC
-from torch.utils.data import Dataset
-from typing import Callable
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+import pandas as pd
+import xarray as xr
+
+
+@dataclass
+class DeepSensorDataset:
+    context: pd.DataFrame | xr.Dataset
+    target: pd.DataFrame | xr.Dataset
+    times: list[pd.Timestamp]
 
 
 class DataProvider(ABC):
@@ -12,17 +21,13 @@ class DataProvider(ABC):
     """
 
     @abstractmethod
-    def get_train_data(self) -> Dataset:
+    def get_train_data(self) -> DeepSensorDataset:
         pass
 
     @abstractmethod
-    def get_val_data(self) -> Dataset:
+    def get_val_data(self) -> DeepSensorDataset:
         pass
 
     @abstractmethod
-    def get_test_data(self) -> Dataset:
-        pass
-
-    @abstractmethod
-    def get_collate_fn(self) -> Callable:
+    def get_test_data(self) -> DeepSensorDataset:
         pass

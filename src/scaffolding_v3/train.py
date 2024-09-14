@@ -1,28 +1,30 @@
-from typing import Optional
-import warnings
 import sys
-from loguru import logger
-from dotenv import load_dotenv
-from tqdm import tqdm
-import wandb
+import warnings
+from typing import Optional
+
+import deepsensor.torch  # noqa
+import hydra
 import numpy as np
 import torch
-from torch.optim.optimizer import Optimizer
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import LRScheduler
-import hydra
 import torch.optim.lr_scheduler
-from omegaconf import OmegaConf
-from hydra.core.config_store import ConfigStore
+import wandb
+from data.dataset import make_dataset
+from data.dwd import get_data_processor
+from deepsensor import Task
 from deepsensor.model.convnp import ConvNP
 from deepsensor.train.train import set_gpu_default_device
-import deepsensor.torch
-from deepsensor import Task
-
+from dotenv import load_dotenv
+from loguru import logger
 from mlbnb.checkpoint import CheckpointManager
+from mlbnb.metric_logger import MetricLogger
 from mlbnb.paths import config_to_filepath
 from mlbnb.rand import seed_everything
-from mlbnb.metric_logger import MetricLogger
+from mlbnb.types import Split
+from omegaconf import OmegaConf
+from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.optimizer import Optimizer
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from scaffolding_v3.config import (
     SKIP_KEYS,
@@ -33,6 +35,7 @@ from scaffolding_v3.config import (
 )
 
 load_config()
+
 
 @hydra.main(version_base=None, config_name="dev", config_path="../..")
 def main(cfg: Config):
@@ -51,27 +54,25 @@ def main(cfg: Config):
 
         logger.info("Instantiating dependencies")
 
-        data_provider = hydra.utils.instantiate(cfg.data.data_provider)
-        trainset = data_provider.get_train_data()
-        valset = data_provider.get_val_data()
-        collate_fn = data_provider.get_collate_fn()
+        data_processor = get_data_processor(cfg.paths)
 
-        train_loader = hydra.utils.instantiate(
+        trainset = make_dataset(cfg.data, cfg.paths, Split.TRAIN, data_processor)
+        valset = make_dataset(cfg.data, cfg.paths, Split.VAL, data_processor)
+
+        train_loader: DataLoader = hydra.utils.instantiate(
             cfg.data.trainloader,
             trainset,
             generator=generator,
-            collate_fn=collate_fn,
+            collate_fn=lambda x: x,
         )
-        val_loader = hydra.utils.instantiate(
+        val_loader: DataLoader = hydra.utils.instantiate(
             cfg.data.testloader,
             valset,
             generator=generator,
-            collate_fn=collate_fn,
+            collate_fn=lambda x: x,
         )
 
-        model = hydra.utils.instantiate(
-            cfg.model, trainset.data_processor, trainset.task_loader
-        )
+        model = hydra.utils.instantiate(cfg.model, data_processor, trainset.task_loader)
 
         optimizer = hydra.utils.instantiate(cfg.optimizer, model.model.parameters())
 
@@ -116,7 +117,11 @@ def _configure_outputs(cfg: Config):
     if cfg.output.use_wandb:
         # Opt in to new wandb backend
         wandb.require("core")
-        wandb.init(project="scaffolding_v3", config=OmegaConf.to_container(cfg), dir=cfg.output.out_dir)  # type: ignore
+        wandb.init(
+            project="scaffolding_v3",
+            config=OmegaConf.to_container(cfg),  # type: ignore
+            dir=cfg.output.out_dir,
+        )  # type: ignore
 
 
 def initial_setup(
@@ -238,7 +243,6 @@ def val_step(
     batch_losses = []
     with torch.no_grad():
         for batch in tqdm(val_loader):
-
             if cfg.dry_run:
                 batch = batch[:1]
 

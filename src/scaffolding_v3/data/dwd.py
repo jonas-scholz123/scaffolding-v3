@@ -1,17 +1,12 @@
-from typing import Callable, Iterable, Literal
+from typing import Literal
+
 import pandas as pd
-import xarray as xr
-import numpy as np
-from torch.utils.data import Dataset
-from loguru import logger
 from deepsensor.data.processor import DataProcessor
-from deepsensor.data.loader import TaskLoader
+from loguru import logger
+from mlbnb.rand import sample, split
 
-
-from mlbnb.rand import split, sample
-from mlbnb.cache import CachedDataset
-from scaffolding_v3.data.dataprovider import DataProvider
 from scaffolding_v3.config import Paths
+from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
 from scaffolding_v3.data.elevation import load_elevation_data
 
 
@@ -83,50 +78,6 @@ def to_deepsensor_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index().set_index(["time", "lat", "lon"])[["t2m"]]  # type: ignore
 
 
-# Combines a primary datasource, like DWD, with secondary datasources
-# like elevation, land use, etc.
-class CombinedDataset(Dataset):
-    def __init__(
-        self,
-        task_loader: TaskLoader,
-        times: list[pd.Timestamp],
-        include_context_in_target: bool,
-        eval_mode: bool,
-    ) -> None:
-        self.task_loader = task_loader
-        self.times = times
-        self.include_context_in_target = include_context_in_target
-        self.eval_mode = eval_mode
-
-        self.task_loader.load_dask()
-
-    def __len__(self):
-        return len(self.times)
-
-    def __getitem__(self, idx):
-        time = self.times[idx]
-        if self.eval_mode:
-            return self.task_loader(
-                time, context_sampling=["all", "all"], target_sampling="all"
-            )
-
-        context_frac = np.random.rand()
-
-        if self.include_context_in_target:
-            return self.task_loader(
-                time,
-                context_sampling=[context_frac, "all"],
-                target_sampling="all",
-            )
-        else:
-            return self.task_loader(
-                time,
-                context_sampling=["split", "all"],
-                target_sampling="split",
-                split_frac=context_frac,
-            )
-
-
 class DwdDataProvider(DataProvider):
     def __init__(
         self,
@@ -134,12 +85,7 @@ class DwdDataProvider(DataProvider):
         num_stations: int,
         num_times: int,
         val_fraction: float,
-        aux_ppu: int,
-        hires_aux_ppu: int,
-        cache: bool,
         daily_averaged: bool,
-        include_context_in_target: bool,
-        include_aux_at_target: bool,
         train_range: tuple[str, str],
         test_range: tuple[str, str],
     ) -> None:
@@ -147,32 +93,25 @@ class DwdDataProvider(DataProvider):
         self.num_stations = num_stations
         self.num_times = num_times
         self.val_fraction = val_fraction
-        self.cache = cache
         self.train_range = train_range
         self.test_range = test_range
         self.daily_averaged = daily_averaged
-        self.include_context_in_target = include_context_in_target
-        self.include_aux_at_target = include_aux_at_target
-
-        self.elevation = load_elevation_data(paths, aux_ppu)
-        self.high_res_elevation = load_elevation_data(paths, hires_aux_ppu)
-        self.data_processor = get_data_processor(paths)
 
         self.trainset = None
         self.valset = None
         self.testset = None
 
-    def get_train_data(self) -> Dataset:
+    def get_train_data(self) -> DeepSensorDataset:
         if self.trainset is None:
             self.trainset, self.valset = self._load_train_val()
         return self.trainset
 
-    def get_val_data(self) -> Dataset:
+    def get_val_data(self) -> DeepSensorDataset:
         if self.valset is None:
             self.trainset, self.valset = self._load_train_val()
         return self.valset
 
-    def _load_train_val(self) -> tuple[Dataset, Dataset]:
+    def _load_train_val(self) -> tuple[DeepSensorDataset, DeepSensorDataset]:
         df = get_dwd_data(
             self.paths,
             stations="train",
@@ -203,9 +142,7 @@ class DwdDataProvider(DataProvider):
         )
 
         logger.info(
-            "Split data into train: {} val: {}",
-            len(trainset),  # type: ignore
-            len(valset),  # type: ignore
+            "Split data into train: {} val: {}", len(trainset.times), len(valset.times)
         )
 
         return trainset, valset
@@ -236,8 +173,7 @@ class DwdDataProvider(DataProvider):
         target_stations: pd.Series,
         times: pd.Series,
         eval_mode: bool,
-    ) -> Dataset:
-
+    ) -> DeepSensorDataset:
         logger.debug(
             "Generating dataset for {} stations at {} times",
             len(target_stations),
@@ -250,52 +186,14 @@ class DwdDataProvider(DataProvider):
         context = to_deepsensor_df(context)
         target = to_deepsensor_df(target)
 
-        return self._to_dataset(context, target, times, eval_mode)
+        return DeepSensorDataset(context, target, list(times))
 
-    def _to_dataset(
-        self,
-        raw_context: pd.DataFrame,
-        raw_target: pd.DataFrame,
-        times: Iterable[pd.Timestamp],
-        eval_mode: bool,
-    ) -> Dataset:
-        context = to_deepsensor_df(raw_context)
-        target = to_deepsensor_df(raw_target)
-
-        context: pd.DataFrame = self.data_processor(context)  # type: ignore
-        target: pd.DataFrame = self.data_processor(target)  # type: ignore
-
-        aux: xr.Dataset = self.data_processor(self.elevation)  # type: ignore
-        hires_aux: xr.Dataset = self.data_processor(self.high_res_elevation)  # type: ignore
-
-        aux_at_target = hires_aux if self.include_aux_at_target else None
-
-        task_loader = TaskLoader(
-            context=[raw_context, aux],
-            target=[raw_target],
-            discrete_xarray_sampling=True,  # TODO: into config
-            aux_at_targets=hires_aux,
-            links=[(0, 0)],
-        )
-
-        dataset = CombinedDataset(
-            task_loader,
-            list(times),
-            self.include_context_in_target,
-            eval_mode,
-        )
-
-        # Always cache eval datasets to remove randomness
-        if self.cache or eval_mode:
-            return CachedDataset(dataset)
-        return dataset
-
-    def get_test_data(self) -> Dataset:
+    def get_test_data(self) -> DeepSensorDataset:
         if self.testset is None:
             self.testset = self._load_test()
         return self.testset
 
-    def _load_test(self) -> Dataset:
+    def _load_test(self) -> DeepSensorDataset:
         train = get_dwd_data(
             self.paths,
             stations="train",
@@ -310,7 +208,5 @@ class DwdDataProvider(DataProvider):
         )
 
         times = test.reset_index()["time"].drop_duplicates()
-        return self._to_dataset(train, test, times, True)
 
-    def get_collate_fn(self) -> Callable:
-        return lambda x: x
+        return DeepSensorDataset(train, test, list(times))

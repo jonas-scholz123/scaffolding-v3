@@ -110,6 +110,7 @@ class DwdConfig:
 class SrtmConfig:
     srtm_url = "https://www.opendem.info/downloads/srtm_germany_dtm.zip"
 
+
 @dataclass
 class Era5Config:
     era5_url = "https://cds.climate.copernicus.eu/api/v2"
@@ -126,10 +127,23 @@ class GeoConfig:
 
 
 @dataclass
+class TaskLoaderConfig:
+    _target_: str = "deepsensor.data.loader.TaskLoader"
+    _partial_: bool = True
+    discrete_xarray_sampling: bool = True
+
+
+@dataclass
 class DataConfig:
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
     data_provider: DataProviderConfig = field(default_factory=DwdDataProviderConfig)
+    task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
+    include_aux_at_targets: bool = True
+    include_context_in_target: bool = False
+    ppu: int = ppu
+    hires_ppu: int = 2000
+    cache: bool = False
 
 
 @dataclass
@@ -174,6 +188,7 @@ class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
+    paths: Paths = field(default_factory=Paths)
 
 
 def load_config() -> None:
