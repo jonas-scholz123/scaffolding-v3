@@ -80,23 +80,25 @@ class TestLoaderConfig(DataloaderConfig):
 
 @dataclass
 class DataProviderConfig:
-    num_stations: int = 500
-    num_times: int = 10000
+    paths: Paths = field(default_factory=Paths)
     val_fraction: float = 0.1
-    aux_ppu: int = ppu
-    hires_aux_ppu: int = 2000
-    cache: bool = False
-    daily_averaged: bool = False
     train_range: tuple[str, str] = ("2006-01-01", "2023-01-01")
     test_range: tuple[str, str] = ("2023-01-01", "2024-01-01")
-    include_context_in_target: bool = False
-    include_aux_at_target: bool = False
-    paths: Paths = field(default_factory=Paths)
 
 
 @dataclass
 class DwdDataProviderConfig(DataProviderConfig):
     _target_: str = "data.dwd.DwdDataProvider"
+    num_stations: int = 500
+    num_times: int = 10000
+    daily_averaged: bool = False
+
+
+@dataclass
+class Era5DataProviderConfig(DataProviderConfig):
+    _target_: str = "data.era5.Era5DataProvider"
+    train_range: tuple[str, str] = ("2006-01-01", "2011-01-01")
+    test_range: tuple[str, str] = ("2011-01-01", "2012-01-01")
 
 
 @dataclass
@@ -137,7 +139,7 @@ class TaskLoaderConfig:
 class DataConfig:
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
-    data_provider: DataProviderConfig = field(default_factory=DwdDataProviderConfig)
+    data_provider: DataProviderConfig = field(default_factory=Era5DataProviderConfig)
     task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
     include_aux_at_targets: bool = True
     include_context_in_target: bool = False
@@ -199,7 +201,7 @@ def load_config() -> None:
         name="dev",
         node=Config(
             data=DataConfig(
-                data_provider=DwdDataProviderConfig(
+                data_provider=Era5DataProviderConfig(
                     train_range=("2006-01-01", "2007-01-01")
                 )
             ),

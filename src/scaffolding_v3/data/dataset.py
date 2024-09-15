@@ -75,6 +75,8 @@ def make_dataset(
         case Split.TEST:
             ds = data_provider.get_test_data()
             eval_mode = True
+        case _:
+            raise ValueError(f"Unknown split: {split}")
 
     # Normalise the data
     context = data_processor(ds.context)
