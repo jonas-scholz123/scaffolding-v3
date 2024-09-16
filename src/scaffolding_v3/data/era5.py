@@ -1,14 +1,7 @@
-# %%
-from torch.utils.data import Dataset
-from typing import Callable
 import xarray as xr
+
 from scaffolding_v3.config import Paths
 from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
-from scaffolding_v3.data.dwd import get_data_processor
-
-import deepsensor.torch
-from deepsensor.data.loader import TaskLoader
-from deepsensor import plot
 
 
 def load_era5(paths: Paths) -> xr.Dataset:
@@ -26,7 +19,6 @@ class Era5DataProvider(DataProvider):
         self.ds = load_era5(paths)
         times = self.ds.time.values
         val_cutoff = int((1 - val_fraction) * len(times))
-        print(val_cutoff)
         self.train_range = (times[0], times[val_cutoff])
         self.val_range = (times[val_cutoff], times[-1])
         self.test_range = test_range

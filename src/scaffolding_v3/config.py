@@ -3,6 +3,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from omegaconf.omegaconf import MISSING
+
 # This isn't perfect, the type annotation approach is nicer but doesn't work with omegaconf
 SKIP_KEYS = {
     "output",
@@ -139,10 +141,10 @@ class TaskLoaderConfig:
 class DataConfig:
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
-    data_provider: DataProviderConfig = field(default_factory=Era5DataProviderConfig)
     task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
+    data_provider: DataProviderConfig = MISSING
     include_aux_at_targets: bool = True
-    include_context_in_target: bool = False
+    include_context_in_target: bool = True
     ppu: int = ppu
     hires_ppu: int = 2000
     cache: bool = False
@@ -184,6 +186,9 @@ class OutputConfig:
 
 @dataclass
 class Config:
+    defaults: list = field(
+        default_factory=lambda: ["_self_", {"data.data_provider": "sim"}]
+    )
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=AdamConfig)
     data: DataConfig = field(default_factory=DataConfig)
@@ -197,15 +202,11 @@ def load_config() -> None:
     from hydra.core.config_store import ConfigStore
 
     cs = ConfigStore.instance()
+    cs.store(group="data.data_provider", name="sim", node=Era5DataProviderConfig)
+    cs.store(group="data.data_provider", name="sim2real", node=DwdDataProviderConfig)
     cs.store(
         name="dev",
-        node=Config(
-            data=DataConfig(
-                data_provider=Era5DataProviderConfig(
-                    train_range=("2006-01-01", "2007-01-01")
-                )
-            ),
-        ),
+        node=Config(),
     )
     cs.store(
         name="prod",
