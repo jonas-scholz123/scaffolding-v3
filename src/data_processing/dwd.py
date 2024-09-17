@@ -134,6 +134,7 @@ def process_dwd():
 
     meta_df = meta_df[["lat", "lon", "station_id", "from_date", "to_date"]]
 
+    logger.info("Processing DWD data")
     for chunk_idx in tqdm(range(0, len(df), chunk_size)):
         chunk = df.iloc[chunk_idx : chunk_idx + chunk_size]
         chunk = meta_df.merge(chunk, on="station_id")
@@ -188,31 +189,6 @@ def process_value_stations() -> None:
 def distance_matrix(gdf1, gdf2):
     # Station distance matrix:
     return gdf1.geometry.apply(lambda g: gdf2.distance(g))
-
-
-def save_station_splits():
-    full = get_dwd_data(paths)
-    gdf = full.groupby("station_id").first()
-    station_ids = gdf.index.get_level_values("station_id").sort_values()
-    sdf = pd.DataFrame(index=station_ids)
-    sdf["set"] = "trainval"
-    sdf["order"] = 0
-
-    test_station_ids = get_test_station_ids()
-
-    # Define test stations.
-    sdf.loc[list(test_station_ids), "set"] = "test"
-
-    # Remaining stations are for training (+ validation).
-    train_station_ids = list(set(station_ids) - set(test_station_ids))
-
-    # Set order so that first 20 stations are subset of first 100 stations etc.
-    sdf.loc[train_station_ids, "order"] = list(range(len(train_station_ids)))
-
-    sdf = sdf.reset_index()
-
-    ensure_parent_exists(paths.station_splits)
-    sdf.to_parquet(paths.station_splits)
 
 
 def extract_links() -> list[str]:

@@ -37,7 +37,12 @@ Actual run:
 python src/scaffolding_v3/train.py -cn prod
 ```
 
-Sim2real:
+Sim data:
 ```
-python src/scaffolding_v3/train.py -cn prod data.data_provider=sim2real
+python src/scaffolding_v3/train.py -cn prod data=sim
+```
+
+Real:
+```
+python src/scaffolding_v3/train.py -cn prod data=real
 ```

@@ -151,6 +151,17 @@ class DataConfig:
 
 
 @dataclass
+class Era5DataConfig(DataConfig):
+    data_provider: DataProviderConfig = field(default_factory=Era5DataProviderConfig)
+    include_context_in_target: bool = False
+
+
+@dataclass
+class DwdDataConfig(DataConfig):
+    data_provider: DataProviderConfig = field(default_factory=DwdDataProviderConfig)
+
+
+@dataclass
 class SchedulerConfig:
     pass
 
@@ -169,7 +180,7 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str = "cuda"
+    device: str = "cpu"
     dry_run: bool = True
     epochs: int = 80
     seed: int = 42
@@ -186,24 +197,22 @@ class OutputConfig:
 
 @dataclass
 class Config:
-    defaults: list = field(
-        default_factory=lambda: ["_self_", {"data.data_provider": "sim"}]
-    )
+    defaults: list = field(default_factory=lambda: ["_self_", {"data": "sim"}])
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=AdamConfig)
-    data: DataConfig = field(default_factory=DataConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
     paths: Paths = field(default_factory=Paths)
+    data: DataConfig = MISSING
 
 
 def load_config() -> None:
     from hydra.core.config_store import ConfigStore
 
     cs = ConfigStore.instance()
-    cs.store(group="data.data_provider", name="sim", node=Era5DataProviderConfig)
-    cs.store(group="data.data_provider", name="sim2real", node=DwdDataProviderConfig)
+    cs.store(group="data", name="sim", node=Era5DataConfig)
+    cs.store(group="data", name="real", node=DwdDataConfig)
     cs.store(
         name="dev",
         node=Config(),
