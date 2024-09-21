@@ -221,7 +221,7 @@ def annotate_test_stations(df: pd.DataFrame, meta: pd.DataFrame) -> None:
     df.to_parquet(paths.dwd)
 
     test_station_ids = get_test_station_ids()
-    meta["is_test_station"] = meta["station_id"].isin(test_station_ids)
+    meta["is_test_station"] = meta["station_id"].isin(test_station_ids)  # type: ignore
 
     logger.success("Test stations annotated.")
 
@@ -243,6 +243,8 @@ def get_test_station_ids() -> set[int]:
     meta_df = meta_df.to_crs(projected_crs)
 
     value_df = value_df.to_crs(projected_crs)
+    if value_df is None:
+        raise RuntimeError(f"Failed to assign crs {projected_crs} to value_df")
     joined = value_df.sjoin_nearest(meta_df, rsuffix="meta")
     test_station_ids = set(joined["station_id"])
     return test_station_ids

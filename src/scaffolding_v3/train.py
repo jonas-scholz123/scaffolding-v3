@@ -8,7 +8,8 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from data.dataset import make_dataset
+from data.dataprovider import DataProvider, DeepSensorDataset
+from data.dataset import make_dataset, make_taskloader
 from data.dwd import get_data_processor
 from deepsensor import Task
 from deepsensor.model.convnp import ConvNP
@@ -34,6 +35,8 @@ from scaffolding_v3.config import (
     load_config,
 )
 
+from scaffolding_v3.plot.plot import Plotter, plot_prediction_and_errors
+
 load_config()
 
 
@@ -56,8 +59,15 @@ def main(cfg: Config):
 
         data_processor = get_data_processor(cfg.paths)
 
-        trainset = make_dataset(cfg.data, cfg.paths, Split.TRAIN, data_processor)
-        valset = make_dataset(cfg.data, cfg.paths, Split.VAL, data_processor)
+        # Create the primary data source (ERA5/DWD)
+        data_provider: DataProvider = hydra.utils.instantiate(cfg.data.data_provider)
+
+        trainset = make_dataset(
+            cfg.data, cfg.paths, data_provider, Split.TRAIN, data_processor
+        )
+        valset = make_dataset(
+            cfg.data, cfg.paths, data_provider, Split.VAL, data_processor
+        )
 
         train_loader: DataLoader = hydra.utils.instantiate(
             cfg.data.trainloader,
@@ -84,6 +94,10 @@ def main(cfg: Config):
         logger.info("Experiment path: {}", path)
         checkpoint_manager = CheckpointManager(path)
 
+        test_data = data_provider.get_test_data()
+
+        plotter = Plotter(cfg, data_processor, test_data, path)
+
         logger.info("Finished instantiating dependencies")
 
         start_epoch = initial_setup(
@@ -98,8 +112,10 @@ def main(cfg: Config):
             optimizer,
             train_loader,
             val_loader,
+            test_data,
             generator,
             scheduler,
+            plotter,
         )
     except Exception as e:
         logger.exception("An error occurred during training: {}", e)
@@ -160,8 +176,10 @@ def train_loop(
     optimizer: Optimizer,
     train_loader: DataLoader,
     val_loader: DataLoader,
+    test_set: DeepSensorDataset,
     generator: torch.Generator,
     scheduler: Optional[LRScheduler],
+    plotter: Plotter,
 ):
     logger.info("Starting training")
 
@@ -199,6 +217,8 @@ def train_loop(
 
         if scheduler:
             scheduler.step()
+
+        plotter.plot(model, epoch)
 
     logger.success("Finished training")
 

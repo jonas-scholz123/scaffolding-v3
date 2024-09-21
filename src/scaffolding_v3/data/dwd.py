@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 import pandas as pd
 from deepsensor.data.processor import DataProcessor
@@ -14,7 +14,7 @@ def get_dwd_data(
     paths: Paths,
     stations: Literal["all", "train", "test"] = "all",
     date_range: tuple[str, str] = ("2006-01-01", "2024-01-01"),
-    columns: list[str] = ["t2m"],
+    columns: Optional[list[str]] = ["t2m"],
     daily_averaged: bool = False,
 ) -> pd.DataFrame:
     """
@@ -39,7 +39,7 @@ def get_dwd_data(
 
     df = pd.read_parquet(paths.dwd, filters=filters, columns=columns)
 
-    if daily_averaged:
+    if daily_averaged and columns is not None:
         df = df.reset_index()
         df = (
             df.groupby(["station_id", "lat", "lon"])
@@ -206,6 +206,9 @@ class DwdDataProvider(DataProvider):
             date_range=self.test_range,
             daily_averaged=self.daily_averaged,
         )
+
+        train = to_deepsensor_df(train)
+        test = to_deepsensor_df(test)
 
         times = test.reset_index()["time"].drop_duplicates()
 

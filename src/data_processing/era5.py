@@ -1,3 +1,4 @@
+# %%
 from scaffolding_v3.config import GeoConfig, Era5Config, Paths
 from dotenv import load_dotenv
 from mlbnb.file import ensure_parent_exists
@@ -44,6 +45,7 @@ def get_years_inclusive(start: int, end: int) -> list[str]:
     return [str(i) for i in range(start, end + 1)]
 
 
+# %%
 config = {
     "product_type": "reanalysis",
     "variable": "2m_temperature",
@@ -60,7 +62,9 @@ client.retrieve(
     config,
     str(raw_path),
 )
+# %%
 
 ds = xr.open_dataset(raw_path, engine="cfgrib")
+# %%
 ds = ds.rename({"latitude": "lat", "longitude": "lon"})
 ds.to_netcdf(paths.era5)

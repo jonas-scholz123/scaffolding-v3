@@ -153,7 +153,7 @@ class DataConfig:
 @dataclass
 class Era5DataConfig(DataConfig):
     data_provider: DataProviderConfig = field(default_factory=Era5DataProviderConfig)
-    include_context_in_target: bool = False
+    include_context_in_target: bool = True
 
 
 @dataclass
@@ -193,6 +193,8 @@ class OutputConfig:
     out_dir: Path = root / "_output"
     use_wandb: bool = False
     log_level: str = "INFO"
+    plot: bool = True
+    plot_time: str = "2023-06-01 00:00:00"
 
 
 @dataclass
@@ -203,6 +205,7 @@ class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
+    geo: GeoConfig = field(default_factory=GeoConfig)
     paths: Paths = field(default_factory=Paths)
     data: DataConfig = MISSING
 

@@ -5,7 +5,7 @@ from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
 
 
 def load_era5(paths: Paths) -> xr.Dataset:
-    return xr.open_dataset(paths.era5)
+    return xr.open_dataset(paths.era5, engine="netcdf4")
 
 
 class Era5DataProvider(DataProvider):
