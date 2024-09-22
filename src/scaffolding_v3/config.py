@@ -15,6 +15,7 @@ SKIP_KEYS = {
     "testloader",
     "paths",
     "epochs",
+    "geo"
 }
 
 root = Path(__file__).resolve().parent.parent.parent
@@ -139,10 +140,10 @@ class TaskLoaderConfig:
 
 @dataclass
 class DataConfig:
+    data_provider: DataProviderConfig = MISSING
+    task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
-    task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
-    data_provider: DataProviderConfig = MISSING
     include_aux_at_targets: bool = True
     include_context_in_target: bool = True
     ppu: int = ppu
@@ -200,6 +201,7 @@ class OutputConfig:
 @dataclass
 class Config:
     defaults: list = field(default_factory=lambda: ["_self_", {"data": "sim"}])
+    data: DataConfig = MISSING
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=AdamConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
@@ -207,7 +209,6 @@ class Config:
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
     geo: GeoConfig = field(default_factory=GeoConfig)
     paths: Paths = field(default_factory=Paths)
-    data: DataConfig = MISSING
 
 
 def load_config() -> None:
