@@ -65,6 +65,7 @@ client.retrieve(
 # %%
 
 ds = xr.open_dataset(raw_path, engine="cfgrib")
-# %%
+ds["t2m"] = ds["t2m"] - 273.15
+ds["t2m"].attrs["units"] = "°C"
 ds = ds.rename({"latitude": "lat", "longitude": "lon"})
 ds.to_netcdf(paths.era5)

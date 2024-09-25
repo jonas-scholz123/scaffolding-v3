@@ -9,7 +9,7 @@ import torch
 import torch.optim.lr_scheduler
 import wandb
 from data.dataprovider import DataProvider, DeepSensorDataset
-from data.dataset import make_dataset, make_taskloader
+from data.dataset import make_dataset
 from data.dwd import get_data_processor
 from deepsensor import Task
 from deepsensor.model.convnp import ConvNP
@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager
 from mlbnb.metric_logger import MetricLogger
-from mlbnb.paths import config_to_filepath
+from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
 from mlbnb.types import Split
 from omegaconf import OmegaConf
@@ -34,8 +34,7 @@ from scaffolding_v3.config import (
     ExecutionConfig,
     load_config,
 )
-
-from scaffolding_v3.plot.plot import Plotter, plot_prediction_and_errors
+from scaffolding_v3.plot.plot import Plotter
 
 load_config()
 
@@ -90,8 +89,9 @@ def main(cfg: Config):
             hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
         )
 
-        path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
-        logger.info("Experiment path: {}", path)
+        path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
+
+        logger.info("Experiment path: {}", str(path))
         checkpoint_manager = CheckpointManager(path)
 
         test_data = data_provider.get_test_data()
@@ -187,6 +187,9 @@ def train_loop(
 
     best_val_loss = float("inf")
 
+    plotter.plot_task(train_loader.dataset[0])
+    plotter.plot_context_encoding(model, train_loader.dataset[0])
+
     for epoch in range(start_epoch, cfg.execution.epochs + 1):
         logger.info("Starting epoch {} / {}", epoch, cfg.execution.epochs)
         train_metrics = train_step(cfg.execution, model, train_loader, optimizer)
@@ -218,7 +221,7 @@ def train_loop(
         if scheduler:
             scheduler.step()
 
-        plotter.plot(model, epoch)
+        plotter.plot_prediction(model, epoch)
 
     logger.success("Finished training")
 

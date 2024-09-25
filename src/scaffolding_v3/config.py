@@ -15,7 +15,7 @@ SKIP_KEYS = {
     "testloader",
     "paths",
     "epochs",
-    "geo"
+    "geo",
 }
 
 root = Path(__file__).resolve().parent.parent.parent
@@ -43,6 +43,8 @@ class ModelConfig:
     unet_channels: tuple = (64,) * 4
     aux_t_mlp_layers: tuple = (64,) * 3
     likelihood: str = "cnp"
+    encoder_scales: float = 0.5 / ppu
+    decoder_scale: float = 0.5 / ppu
 
 
 @dataclass
@@ -58,7 +60,7 @@ class AdadeltaConfig(OptimizerConfig):
 @dataclass
 class AdamConfig(OptimizerConfig):
     _target_: str = "torch.optim.Adam"
-    lr: float = 5e-5
+    lr: float = 1e-4
 
 
 @dataclass
@@ -70,7 +72,7 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 1
+    batch_size: int = 4
     shuffle: bool = True
     num_workers: int = 0
 
@@ -87,21 +89,22 @@ class DataProviderConfig:
     val_fraction: float = 0.1
     train_range: tuple[str, str] = ("2006-01-01", "2023-01-01")
     test_range: tuple[str, str] = ("2023-01-01", "2024-01-01")
+    num_times: int = 10000
 
 
 @dataclass
 class DwdDataProviderConfig(DataProviderConfig):
-    _target_: str = "data.dwd.DwdDataProvider"
+    _target_: str = "scaffolding_v3.data.dwd.DwdDataProvider"
     num_stations: int = 500
-    num_times: int = 10000
     daily_averaged: bool = False
 
 
 @dataclass
 class Era5DataProviderConfig(DataProviderConfig):
-    _target_: str = "data.era5.Era5DataProvider"
+    _target_: str = "scaffolding_v3.data.era5.Era5DataProvider"
     train_range: tuple[str, str] = ("2006-01-01", "2011-01-01")
     test_range: tuple[str, str] = ("2011-01-01", "2012-01-01")
+    num_times: int = 10000
 
 
 @dataclass
@@ -139,6 +142,11 @@ class TaskLoaderConfig:
 
 
 @dataclass
+class Era5TaskLoaderConfig(TaskLoaderConfig):
+    discrete_xarray_sampling: bool = False
+
+
+@dataclass
 class DataConfig:
     data_provider: DataProviderConfig = MISSING
     task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
@@ -154,6 +162,7 @@ class DataConfig:
 @dataclass
 class Era5DataConfig(DataConfig):
     data_provider: DataProviderConfig = field(default_factory=Era5DataProviderConfig)
+    task_loader: TaskLoaderConfig = field(default_factory=Era5TaskLoaderConfig)
     include_context_in_target: bool = True
 
 
@@ -181,7 +190,7 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str = "cpu"
+    device: str = "cuda"
     dry_run: bool = True
     epochs: int = 80
     seed: int = 42
@@ -204,11 +213,11 @@ class Config:
     data: DataConfig = MISSING
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=AdamConfig)
-    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
     geo: GeoConfig = field(default_factory=GeoConfig)
     paths: Paths = field(default_factory=Paths)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
 
 def load_config() -> None:

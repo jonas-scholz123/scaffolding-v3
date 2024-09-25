@@ -1,4 +1,5 @@
 import xarray as xr
+from loguru import logger
 
 from scaffolding_v3.config import Paths
 from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
@@ -13,11 +14,20 @@ class Era5DataProvider(DataProvider):
         self,
         paths: Paths,
         val_fraction: float,
+        num_times: int,
         train_range: tuple[str, str],
         test_range: tuple[str, str],
     ):
         self.ds = load_era5(paths)
         times = self.ds.time.values
+        if num_times > len(times):
+            logger.warning(
+                "Requested {} times but only have {} in ERA5", num_times, len(times)
+            )
+        else:
+            subsampling = len(times) // num_times
+            times = times[::subsampling]
+            self.ds = self.ds.sel(time=times)
         val_cutoff = int((1 - val_fraction) * len(times))
         self.train_range = (times[0], times[val_cutoff])
         self.val_range = (times[val_cutoff], times[-1])

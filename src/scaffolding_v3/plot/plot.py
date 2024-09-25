@@ -1,31 +1,32 @@
 # %%
-from pathlib import Path
 from typing import Optional
+
 import cartopy.feature as feature
-from loguru import logger
-import pandas as pd
 import deepsensor.torch  # noqa
 import hydra
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 import xarray as xr
 from cartopy import crs as ccrs
-from config import Config, Era5DataConfig
-from data.dataprovider import DeepSensorDataset
-from data.dataset import make_taskloader
-from data.dwd import get_data_processor
-from data.era5 import Era5DataProvider, load_era5
 from deepsensor import Task
 from deepsensor.data.processor import DataProcessor
 from deepsensor.model.convnp import ConvNP
-from deepsensor.plot import offgrid_context
 from hydra.utils import instantiate
+from loguru import logger
 from matplotlib.figure import Figure
+from mlbnb.paths import ExperimentPath
+
+from scaffolding_v3.config import Config, Era5DataConfig
+from scaffolding_v3.data.dataprovider import DeepSensorDataset
+from scaffolding_v3.data.dataset import make_taskloader
+from scaffolding_v3.data.dwd import get_data_processor
+from scaffolding_v3.data.era5 import Era5DataProvider, load_era5
 
 
 def make_uniform_grid(
-    min_lat: float, max_lat: float, min_lon: float, max_lon: float, resolution: float
+    min_lon: float, max_lon: float, min_lat: float, max_lat: float, resolution: float
 ) -> xr.DataArray:
     lons = np.arange(min_lon, max_lon + resolution, resolution)
     lats = np.arange(min_lat, max_lat + resolution, resolution)
@@ -117,7 +118,7 @@ def plot_era5_prediction_and_errors(
     axs[3].set_title("ConvNP error")
 
     context_axs = [ax for i, ax in enumerate(axs) if i != 1]
-    offgrid_context(
+    deepsensor.plot.offgrid_context(
         context_axs,
         task,
         data_processor,
@@ -130,7 +131,6 @@ def plot_era5_prediction_and_errors(
     )
 
     for ax in axs:
-        ax.set_extent(bounds, crs=ccrs.PlateCarree())  # type: ignore
         ax.add_feature(feature.BORDERS, linewidth=0.25)  # type: ignore
         ax.coastlines(linewidth=0.25)  # type: ignore
 
@@ -143,13 +143,15 @@ class Plotter:
         cfg: Config,
         data_processor: DataProcessor,
         test_data: DeepSensorDataset,
-        dir: Path,
+        dir: Optional[ExperimentPath] = None,
     ):
         self.cfg = cfg
         geo = cfg.geo
         self.bounds = (geo.min_lon, geo.max_lon, geo.min_lat, geo.max_lat)
         self.data_processor = data_processor
-        task_loader = make_taskloader(cfg.data, cfg.paths, data_processor, test_data)
+        self.task_loader = make_taskloader(
+            cfg.data, cfg.paths, data_processor, test_data
+        )
         self.time_str = cfg.output.plot_time
         self.time: pd.Timestamp = pd.Timestamp(self.time_str)  # type: ignore
         if self.time not in test_data.times:
@@ -158,25 +160,61 @@ class Plotter:
                 self.time,
             )
             self.time = test_data.times[0]
-        self.plot_task: Task = task_loader(self.time, context_sampling=0.05)  # type: ignore
+        self.sample_task: Task = self.task_loader(
+            self.time, context_sampling=[0.05, "all"], target_sampling="all"
+        )  # type: ignore
         self.test_data = test_data
         self.is_plotting = cfg.output.plot
         self.dir = dir
 
-    def plot(self, model: ConvNP, epoch: int) -> None:
+    def plot_prediction(self, model: ConvNP, epoch: int = 0) -> Optional[Figure]:
         if self.is_plotting:
             target = self.test_data.target["t2m"]
             if isinstance(target, xr.DataArray):
                 fig = plot_prediction_and_errors(
-                    self.plot_task,
+                    self.sample_task,
                     target,
                     self.data_processor,
                     model,
                     self.bounds,
                 )
-                fig.savefig(self.dir / f"prediction_{epoch}_{self.time_str}.pdf")
+                self._save_or_show(fig, f"{epoch}_{self.time_str}_prediction.pdf")
+                return fig
             else:
                 logger.warning("DWD plotting not yet supported.")
+
+    def _save_or_show(self, fig: Figure, fname: str) -> None:
+        if self.dir:
+            fig.savefig(self.dir.at(fname), bbox_inches="tight")
+        else:
+            plt.show()
+
+    def plot_task(
+        self, task: Optional[Task] = None, epoch: int = 0
+    ) -> Optional[Figure]:
+        if not task:
+            task = self.sample_task
+
+        if self.is_plotting:
+            deepsensor.plot.task(self.sample_task, self.task_loader)
+            fig = plt.gcf()
+            self._save_or_show(fig, f"{epoch}_{self.time_str}_task.pdf")
+            return fig
+
+    def plot_context_encoding(
+        self, model: ConvNP, task: Optional[Task] = None, epoch: int = 0
+    ) -> Optional[Figure]:
+        if not task:
+            task = self.sample_task
+
+        if self.is_plotting:
+            fig: Figure = deepsensor.plot.context_encoding(
+                model,
+                self.sample_task,
+                self.task_loader,
+            )  # type: ignore
+            self._save_or_show(fig, f"{epoch}_{self.time_str}_context_encoding.pdf")
+            return fig
 
 
 if __name__ == "__main__":
@@ -201,3 +239,7 @@ if __name__ == "__main__":
 
     bounds = (cfg.geo.min_lon, cfg.geo.max_lon, cfg.geo.min_lat, cfg.geo.max_lat)
     plot_prediction_and_errors(task, era5_data, data_processor, model, bounds)
+
+    plotter = Plotter(cfg, data_processor, dataset)
+    plotter.plot_task()
+    plotter.plot_context_encoding(model)

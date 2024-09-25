@@ -1,14 +1,15 @@
 import numpy as np
 import pandas as pd
-from config import DataConfig, Paths
-from data.dataprovider import DataProvider, DeepSensorDataset
-from data.elevation import load_elevation_data
 from deepsensor.data.loader import TaskLoader
 from deepsensor.data.processor import DataProcessor
 from hydra.utils import instantiate
 from mlbnb.cache import CachedDataset
 from mlbnb.types import Split
 from torch.utils.data import Dataset
+
+from scaffolding_v3.config import DataConfig, Paths
+from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
+from scaffolding_v3.data.elevation import load_elevation_data
 
 
 class TaskLoaderDataset(Dataset):
@@ -60,7 +61,6 @@ def make_dataset(
     split: Split,
     data_processor: DataProcessor,
 ) -> TaskLoaderDataset:
-
     match split:
         case Split.TRAIN:
             ds = data_provider.get_train_data()
