@@ -199,7 +199,7 @@ class ExecutionConfig:
 
 @dataclass
 class OutputConfig:
-    save_model: bool = True
+    save_checkpoints: bool = True
     out_dir: Path = root / "_output"
     use_wandb: bool = False
     log_level: str = "INFO"

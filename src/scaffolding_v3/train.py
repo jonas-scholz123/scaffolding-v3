@@ -1,6 +1,7 @@
 import sys
 import warnings
-from typing import Optional
+from dataclasses import asdict, dataclass
+from typing import Any, Optional
 
 import deepsensor.torch  # noqa
 import hydra
@@ -16,7 +17,7 @@ from deepsensor.model.convnp import ConvNP
 from deepsensor.train.train import set_gpu_default_device
 from dotenv import load_dotenv
 from loguru import logger
-from mlbnb.checkpoint import CheckpointManager
+from mlbnb.checkpoint import CheckpointManager, Saveable
 from mlbnb.metric_logger import MetricLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
@@ -64,6 +65,7 @@ def _configure_outputs(cfg: Config):
     warnings.filterwarnings(
         "ignore", category=DeprecationWarning, module="google.protobuf"
     )
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="deepsensor")
 
     if cfg.output.use_wandb:
         # Opt in to new wandb backend
@@ -73,6 +75,19 @@ def _configure_outputs(cfg: Config):
             config=OmegaConf.to_container(cfg),  # type: ignore
             dir=cfg.output.out_dir,
         )  # type: ignore
+
+
+@dataclass
+class TrainerState(Saveable):
+    epoch: int
+    best_val_loss: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def from_dict(self, data: dict[str, Any]) -> None:
+        self.epoch = data["epoch"]
+        self.best_val_loss = data["best_val_loss"]
 
 
 class Trainer:
@@ -86,6 +101,7 @@ class Trainer:
     checkpoint_manager: CheckpointManager
     scheduler: Optional[LRScheduler]
     plotter: Optional[Plotter]
+    state: TrainerState
 
     def __init__(
         self,
@@ -111,31 +127,43 @@ class Trainer:
         self.scheduler = scheduler
         self.plotter = plotter
 
-        self.start_epoch = self._load_checkpoint()
+        self.state = self._load_initial_state()
 
-    def _load_checkpoint(self) -> int:
-        start_epoch = 1
+    def _load_initial_state(self) -> TrainerState:
         start_from = self.cfg.execution.start_from
+
+        initial_state = TrainerState(
+            epoch=1,
+            best_val_loss=np.inf,
+        )
+
         if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
-            checkpoint = self.checkpoint_manager.reproduce(
+            self.checkpoint_manager.reproduce(
                 start_from.value,
                 self.model.model,
                 self.optimizer,
                 self.generator,
                 self.scheduler,
+                initial_state,
+            )
+
+            logger.info(
+                "Checkpoint loaded, best val loss: {}, epoch: {}",
+                initial_state.best_val_loss,
+                initial_state.epoch,
             )
 
             # Checkpoint is at end of epoch, add 1 for next epoch.
-            start_epoch = checkpoint.epoch + 1
-            if start_epoch < self.cfg.execution.epochs:
-                logger.info("Checkpoint loaded, starting from epoch {}", start_epoch)
+            initial_state.epoch += 1
+            if initial_state.epoch < self.cfg.execution.epochs:
+                logger.info("Checkpoint loaded, initial state {}", initial_state)
             else:
                 logger.info(
                     "Checkpoint loaded, run has concluded (epoch {} / {})",
-                    start_epoch - 1,
+                    initial_state.epoch - 1,
                     self.cfg.execution.epochs,
                 )
-        return start_epoch
+        return initial_state
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
@@ -206,6 +234,7 @@ class Trainer:
         )
 
     def train_loop(self):
+        s = self.state
         logger.info("Starting training")
 
         metric_logger = MetricLogger(self.cfg.output.use_wandb)
@@ -216,39 +245,28 @@ class Trainer:
             self.plotter.plot_task(self.train_loader.dataset[0])
             self.plotter.plot_context_encoding(self.model, self.train_loader.dataset[0])
 
-        for epoch in range(self.start_epoch, self.cfg.execution.epochs + 1):
-            logger.info("Starting epoch {} / {}", epoch, self.cfg.execution.epochs)
+        while s.epoch <= self.cfg.execution.epochs + 1:
+            logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
             train_metrics = self.train_step()
-            metric_logger.log(epoch, train_metrics)
+            metric_logger.log(s.epoch, train_metrics)
             val_metrics = self.val_step()
-            metric_logger.log(epoch, val_metrics)
+            metric_logger.log(s.epoch, val_metrics)
 
-            if self.cfg.output.save_model:
-                self.checkpoint_manager.save_checkpoint(
-                    epoch,
-                    CheckpointOccasion.LATEST.value,
-                    self.model.model,
-                    self.optimizer,
-                    self.generator,
-                    self.scheduler,
-                )
+            self.save_checkpoint(CheckpointOccasion.LATEST)
 
             if val_metrics["val_loss"] < best_val_loss:
+                logger.info("New best val loss: {}", val_metrics["val_loss"])
                 best_val_loss = val_metrics["val_loss"]
-                self.checkpoint_manager.save_checkpoint(
-                    epoch,
-                    CheckpointOccasion.BEST.value,
-                    self.model.model,
-                    self.optimizer,
-                    self.generator,
-                    self.scheduler,
-                )
+                self.save_checkpoint(CheckpointOccasion.BEST)
 
             if self.scheduler:
                 self.scheduler.step()
 
             if self.plotter:
-                self.plotter.plot_prediction(self.model, epoch)
+                self.plotter.plot_prediction(self.model, s.epoch)
+
+            s.epoch += 1
+            s.best_val_loss = best_val_loss
 
         logger.success("Finished training")
 
@@ -276,6 +294,17 @@ class Trainer:
                 break
 
         return {"train_loss": train_loss / len(self.train_loader)}
+
+    def save_checkpoint(self, occasion: CheckpointOccasion):
+        if self.cfg.output.save_checkpoints:
+            self.checkpoint_manager.save_checkpoint(
+                occasion.value,
+                self.model.model,
+                self.optimizer,
+                self.generator,
+                self.scheduler,
+                self.state,
+            )
 
     def val_step(self) -> dict[str, float]:
         self.model.model.eval()
