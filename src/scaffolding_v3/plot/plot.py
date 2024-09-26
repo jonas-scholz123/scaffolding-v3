@@ -164,24 +164,22 @@ class Plotter:
             self.time, context_sampling=[0.05, "all"], target_sampling="all"
         )  # type: ignore
         self.test_data = test_data
-        self.is_plotting = cfg.output.plot
         self.dir = dir
 
     def plot_prediction(self, model: ConvNP, epoch: int = 0) -> Optional[Figure]:
-        if self.is_plotting:
-            target = self.test_data.target["t2m"]
-            if isinstance(target, xr.DataArray):
-                fig = plot_prediction_and_errors(
-                    self.sample_task,
-                    target,
-                    self.data_processor,
-                    model,
-                    self.bounds,
-                )
-                self._save_or_show(fig, f"{epoch}_{self.time_str}_prediction.pdf")
-                return fig
-            else:
-                logger.warning("DWD plotting not yet supported.")
+        target = self.test_data.target["t2m"]
+        if isinstance(target, xr.DataArray):
+            fig = plot_prediction_and_errors(
+                self.sample_task,
+                target,
+                self.data_processor,
+                model,
+                self.bounds,
+            )
+            self._save_or_show(fig, f"{epoch}_{self.time_str}_prediction.pdf")
+            return fig
+        else:
+            logger.warning("DWD plotting not yet supported.")
 
     def _save_or_show(self, fig: Figure, fname: str) -> None:
         if self.dir:
@@ -195,11 +193,10 @@ class Plotter:
         if not task:
             task = self.sample_task
 
-        if self.is_plotting:
-            deepsensor.plot.task(self.sample_task, self.task_loader)
-            fig = plt.gcf()
-            self._save_or_show(fig, f"{epoch}_{self.time_str}_task.pdf")
-            return fig
+        deepsensor.plot.task(self.sample_task, self.task_loader)
+        fig = plt.gcf()
+        self._save_or_show(fig, f"{epoch}_{self.time_str}_task.pdf")
+        return fig
 
     def plot_context_encoding(
         self, model: ConvNP, task: Optional[Task] = None, epoch: int = 0
@@ -207,14 +204,13 @@ class Plotter:
         if not task:
             task = self.sample_task
 
-        if self.is_plotting:
-            fig: Figure = deepsensor.plot.context_encoding(
-                model,
-                self.sample_task,
-                self.task_loader,
-            )  # type: ignore
-            self._save_or_show(fig, f"{epoch}_{self.time_str}_context_encoding.pdf")
-            return fig
+        fig: Figure = deepsensor.plot.context_encoding(
+            model,
+            self.sample_task,
+            self.task_loader,
+        )  # type: ignore
+        self._save_or_show(fig, f"{epoch}_{self.time_str}_context_encoding.pdf")
+        return fig
 
 
 if __name__ == "__main__":

@@ -1,28 +1,32 @@
 # %%
-import hydra
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+from typing import Any
+
 import cartopy.crs as ccrs
 import cartopy.feature as cf
-import deepsensor.torch
 import deepsensor.plot
+import deepsensor.torch
+import hydra
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from deepsensor.train.train import set_gpu_default_device
-from mlbnb.paths import config_to_filepath
 from mlbnb.checkpoint import CheckpointManager
+from mlbnb.paths import ExperimentPath, config_to_filepath
 from omegaconf import DictConfig
 
-from scaffolding_v3.data.elevation import load_elevation_data
-from scaffolding_v3.data.dwd import get_data_processor
 from scaffolding_v3.config import (
+    SKIP_KEYS,
+    Config,
     DataConfig,
     DwdDataProviderConfig,
-    Paths,
-    Config,
     ExecutionConfig,
     OutputConfig,
-    SKIP_KEYS,
+    Paths,
 )
+from scaffolding_v3.data.dwd import get_data_processor
+from scaffolding_v3.data.elevation import load_elevation_data
+
 # %%
 
 
@@ -41,7 +45,6 @@ params = {
     "figure.facecolor": "w",
 }
 
-import matplotlib as mpl
 
 mpl.rcParams.update(params)
 
@@ -52,7 +55,7 @@ def gen_test_fig(
     std_ds=None,
     samples_ds=None,
     task=None,
-    extent=None,
+    extent: Any = None,
     add_colorbar=False,
     var_cmap="jet",
     var_clim=None,
@@ -91,7 +94,9 @@ def gen_test_fig(
     if samples_ds is not None:
         ncols += samples_ds.shape[0]
 
-    fig, axes = plt.subplots(1, ncols, subplot_kw=dict(projection=crs), figsize=figsize)
+    res = plt.subplots(1, ncols, subplot_kw=dict(projection=crs), figsize=figsize)
+    fig = res[0]
+    axes: np.ndarray = res[1]  # type: ignore
 
     axis_i = 0
     if era5_raw_ds is not None:
@@ -168,11 +173,7 @@ cfg = DictConfig(
     Config(
         execution=ExecutionConfig(dry_run=False),
         output=OutputConfig(use_wandb=True),
-        data=DataConfig(
-            data_provider=DwdDataProviderConfig(
-                daily_averaged=False, include_context_in_target=False
-            )
-        ),
+        data=DataConfig(data_provider=DwdDataProviderConfig(daily_averaged=False)),
     )
 )
 paths = Paths()
@@ -191,7 +192,7 @@ task_loader = test_dataset.task_loader
 
 model = hydra.utils.instantiate(cfg.model, data_processor, task_loader)
 
-path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
+path = ExperimentPath(config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS))
 print(path)
 checkpoint_manager = CheckpointManager(path)
 
@@ -206,7 +207,7 @@ min_lat, max_lat = 47.5, 55
 min_lon, max_lon = 6, 15
 
 X_t = hires_aux_raw_ds.sel(lat=slice(max_lat, min_lat), lon=slice(min_lon, max_lon))
-X_t = X_t.coarsen(lat=2, lon=2, boundary="trim").mean()
+X_t = X_t.coarsen(lat=2, lon=2, boundary="trim").mean()  # type: ignore
 
 if cfg.data.data_provider.daily_averaged:
     test_time = pd.Timestamp("2023-02-05")
@@ -248,21 +249,21 @@ latmin = 47.5
 lonmax = 13
 lonmin = 11
 
-#latmin = 51.0
-#latmax = 53
-#lonmin = 10
-#lonmax = 12
+# latmin = 51.0
+# latmax = 53
+# lonmin = 10
+# lonmax = 12
 
-#latmin = 51.0
-#latmax = 53
-#lonmin = 7
-#lonmax = 9
+# latmin = 51.0
+# latmax = 53
+# lonmin = 7
+# lonmax = 9
 fig, axes = gen_test_fig(
     # era5_raw_ds.sel(time=test_task['time'], lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())),
     None,
-    mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
-    std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
-    task=test_task,
+    mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
+    std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
+    task=test_task,  # type: ignore
     add_colorbar=True,
     var_cbar_label="2m temperature [°C]",
     std_cbar_label="std dev [°C]",
