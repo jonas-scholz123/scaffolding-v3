@@ -1,3 +1,4 @@
+import json
 import sys
 import warnings
 from dataclasses import asdict, dataclass
@@ -98,6 +99,7 @@ class Trainer:
     val_loader: DataLoader
     test_data: DeepSensorDataset
     generator: torch.Generator
+    experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
     scheduler: Optional[LRScheduler]
     plotter: Optional[Plotter]
@@ -110,8 +112,8 @@ class Trainer:
         optimizer: Optimizer,
         train_loader: DataLoader,
         val_loader: DataLoader,
-        test_data: DeepSensorDataset,
         generator: torch.Generator,
+        experiment_path: ExperimentPath,
         checkpoint_manager: CheckpointManager,
         scheduler: Optional[LRScheduler],
         plotter: Optional[Plotter],
@@ -121,8 +123,8 @@ class Trainer:
         self.optimizer = optimizer
         self.train_loader = train_loader
         self.val_loader = val_loader
-        self.test_data = test_data
         self.generator = generator
+        self.experiment_path = experiment_path
         self.checkpoint_manager = checkpoint_manager
         self.scheduler = scheduler
         self.plotter = plotter
@@ -206,15 +208,15 @@ class Trainer:
             hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
         )
 
-        path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
+        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
 
-        logger.info("Experiment path: {}", str(path))
-        checkpoint_manager = CheckpointManager(path)
+        logger.info("Experiment path: {}", str(experiment_path))
+        checkpoint_manager = CheckpointManager(experiment_path)
 
         test_data = data_provider.get_test_data()
 
         if cfg.output.plot:
-            plotter = Plotter(cfg, data_processor, test_data, path)
+            plotter = Plotter(cfg, data_processor, test_data, experiment_path)
         else:
             plotter = None
 
@@ -226,8 +228,8 @@ class Trainer:
             optimizer,
             train_loader,
             val_loader,
-            test_data,
             generator,
+            experiment_path,
             checkpoint_manager,
             scheduler,
             plotter,
@@ -235,6 +237,8 @@ class Trainer:
 
     def train_loop(self):
         s = self.state
+        self._save_config()
+
         logger.info("Starting training")
 
         metric_logger = MetricLogger(self.cfg.output.use_wandb)
@@ -269,6 +273,10 @@ class Trainer:
             s.best_val_loss = best_val_loss
 
         logger.success("Finished training")
+
+    def _save_config(self) -> None:
+        with self.experiment_path.open("cfg.yaml", "w") as f:
+            f.write(OmegaConf.to_yaml(self.cfg))
 
     def train_step(self) -> dict[str, float]:
         train_loss = 0.0
