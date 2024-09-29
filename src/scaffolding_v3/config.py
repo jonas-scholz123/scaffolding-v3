@@ -34,6 +34,7 @@ class Paths:
     value_stations: Path = data / "dwd" / "value_stations.parquet"
     data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
+    evaluation: Path = output / "evaluation.csv"
 
 
 @dataclass

@@ -38,8 +38,19 @@ paths = get_experiment_paths(
 )
 
 
-def make_eval_df(paths: list[ExperimentPath]) -> pd.DataFrame:
-    dfs = []
+# TODO: Split this up into smaller functions:
+# 1. Load but don't yet evaluate the data
+# 2. Sort by validation loss to evaluate the best models first
+# 3. Evaluate the models
+
+
+# TODO: Make sure this is deterministic, write tests
+def make_eval_df(
+    paths: list[ExperimentPath],
+    initial_df: pd.DataFrame,
+) -> pd.DataFrame:
+    dfs = [initial_df]
+
     for path in tqdm(paths):
         checkpoint_manager = CheckpointManager(path)
         config: Config = path.get_config()  # type: ignore
@@ -47,6 +58,7 @@ def make_eval_df(paths: list[ExperimentPath]) -> pd.DataFrame:
         config_dict = OmegaConf.to_container(config, resolve=True)
         flat_dict = pd.json_normalize(config_dict)  # type: ignore
         df = pd.DataFrame(flat_dict)
+        df["evaluated"] = False
         skip_cols = []
         for col in df.columns:
             for keys in col.split("."):
@@ -61,18 +73,33 @@ def make_eval_df(paths: list[ExperimentPath]) -> pd.DataFrame:
             continue
         trainer_state = TrainerState.from_dict(checkpoint.other_state)
 
-        df["path"] = checkpoint_manager.dir
+        path_str = str(path.root)
+        matching_rows = initial_df.query(
+            "path == @path_str and epoch == @trainer_state.epoch and evaluated"
+        )
+
+        already_evaluated = not matching_rows.empty
+        if already_evaluated:
+            continue
+
+        df["path"] = path.root
         df["epoch"] = trainer_state.epoch
         df["val_loss"] = trainer_state.best_val_loss
-        for metric_name, metric in compute_test_metrics(config).items():
-            df[f"test_{metric_name}"] = metric
+        df = df.set_index("path")
         dfs.append(df)
+    df = pd.concat(dfs)
+    df["evaluated"] = df["evaluated"].astype(bool)
+    df = df.sort_values("val_loss", ascending=True)
 
-    if not dfs:
-        logger.warning("No data found")
-        return pd.DataFrame()
+    for path_str in df[~df["evaluated"]].index:
+        path = ExperimentPath(Path(path_str))  # type: ignore
+        config: Config = path.get_config()  # type: ignore
 
-    return pd.concat(dfs, ignore_index=True)
+        for metric_name, metric in compute_test_metrics(config).items():
+            df.loc[path_str, f"test_{metric_name}"] = metric
+        df.loc[path_str, "evaluated"] = True
+
+    return df
 
 
 def compute_test_metrics(cfg: Config) -> dict[str, float]:
@@ -101,9 +128,19 @@ def compute_test_metrics(cfg: Config) -> dict[str, float]:
 
 
 def evaluate_all() -> pd.DataFrame:
-    df = make_eval_df(paths)
-    df.to_csv(Paths.output / "evaluation.csv", index=False)
+    df = make_eval_df(paths, load_eval_df())
+    df = df.reset_index()
+    df.to_csv(Paths.evaluation, index=False)
     return df
+
+
+def load_eval_df() -> pd.DataFrame:
+    if not Paths.evaluation.exists():
+        # Include these columns to simplify the code later
+        df = pd.DataFrame(columns=["evaluated", "path", "epoch"])  # type: ignore
+    else:
+        df = pd.read_csv(Paths.evaluation)
+    return df.set_index("path")
 
 
 evaluate_all()
