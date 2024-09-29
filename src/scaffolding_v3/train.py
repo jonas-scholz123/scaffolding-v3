@@ -10,9 +10,9 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from data.dataprovider import DataProvider, DeepSensorDataset
-from data.dataset import make_dataset
-from data.dwd import get_data_processor
+from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
+from scaffolding_v3.data.dataset import make_dataset
+from scaffolding_v3.data.dwd import get_data_processor
 from deepsensor import Task
 from deepsensor.model.convnp import ConvNP
 from deepsensor.train.train import set_gpu_default_device
@@ -83,10 +83,17 @@ class TrainerState(Saveable):
     epoch: int
     best_val_loss: float
 
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "TrainerState":
+        return TrainerState(
+            epoch=data["epoch"],
+            best_val_loss=data["best_val_loss"],
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def from_dict(self, data: dict[str, Any]) -> None:
+    def load_from_dict(self, data: dict[str, Any]) -> None:
         self.epoch = data["epoch"]
         self.best_val_loss = data["best_val_loss"]
 
