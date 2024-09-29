@@ -1,4 +1,3 @@
-import json
 import sys
 import warnings
 from dataclasses import asdict, dataclass
@@ -10,9 +9,6 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
-from scaffolding_v3.data.dataset import make_dataset
-from scaffolding_v3.data.dwd import get_data_processor
 from deepsensor import Task
 from deepsensor.model.convnp import ConvNP
 from deepsensor.train.train import set_gpu_default_device
@@ -35,6 +31,9 @@ from scaffolding_v3.config import (
     Config,
     load_config,
 )
+from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
+from scaffolding_v3.data.dataset import make_dataset
+from scaffolding_v3.data.dwd import get_data_processor
 from scaffolding_v3.plot.plot import Plotter
 
 load_config()
@@ -322,29 +321,34 @@ class Trainer:
             )
 
     def val_step(self) -> dict[str, float]:
-        self.model.model.eval()
-        batch_losses = []
-        with torch.no_grad():
-            for batch in tqdm(self.val_loader):
-                if self.cfg.execution.dry_run:
-                    batch = batch[:1]
+        return evaluate(self.model, self.val_loader, self.cfg.execution.dry_run)
 
-                batch_losses.append(self.eval_on_batch(batch))
 
-                if self.cfg.execution.dry_run:
-                    break
+def evaluate(model: ConvNP, dataloader: DataLoader, dry_run: bool) -> dict[str, float]:
+    model.model.eval()
+    batch_losses = []
+    with torch.no_grad():
+        for batch in tqdm(dataloader):
+            if dry_run:
+                batch = batch[:1]
 
-        val_loss = float(np.mean(batch_losses))
-        return {"val_loss": val_loss}
+            batch_losses.append(eval_on_batch(model, batch))
 
-    def eval_on_batch(self, batch: list[Task]) -> float:
-        with torch.no_grad():
-            task_losses = []
-            for task in batch:
-                task_losses.append(self.model.loss_fn(task, normalise=True))
-            mean_batch_loss = torch.mean(torch.stack(task_losses))
+            if dry_run:
+                break
 
-        return float(mean_batch_loss.detach().cpu().numpy())
+    val_loss = float(np.mean(batch_losses))
+    return {"val_loss": val_loss}
+
+
+def eval_on_batch(model: ConvNP, batch: list[Task]) -> float:
+    with torch.no_grad():
+        task_losses = []
+        for task in batch:
+            task_losses.append(model.loss_fn(task, normalise=True))
+        mean_batch_loss = torch.mean(torch.stack(task_losses))
+
+    return float(mean_batch_loss.detach().cpu().numpy())
 
 
 if __name__ == "__main__":
