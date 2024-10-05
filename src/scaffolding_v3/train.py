@@ -1,7 +1,6 @@
 import sys
 import warnings
-from dataclasses import asdict, dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import deepsensor.torch  # noqa
 import hydra
@@ -9,12 +8,11 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from deepsensor import Task
 from deepsensor.model.convnp import ConvNP
 from deepsensor.train.train import set_gpu_default_device
 from dotenv import load_dotenv
 from loguru import logger
-from mlbnb.checkpoint import CheckpointManager, Saveable
+from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.metric_logger import MetricLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
@@ -34,6 +32,7 @@ from scaffolding_v3.config import (
 from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
 from scaffolding_v3.data.dataset import make_dataset
 from scaffolding_v3.data.dwd import get_data_processor
+from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plot import Plotter
 
 load_config()
@@ -75,26 +74,6 @@ def _configure_outputs(cfg: Config):
             config=OmegaConf.to_container(cfg),  # type: ignore
             dir=cfg.output.out_dir,
         )  # type: ignore
-
-
-@dataclass
-class TrainerState(Saveable):
-    epoch: int
-    best_val_loss: float
-
-    @staticmethod
-    def from_dict(data: dict[str, Any]) -> "TrainerState":
-        return TrainerState(
-            epoch=data["epoch"],
-            best_val_loss=data["best_val_loss"],
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def load_from_dict(self, data: dict[str, Any]) -> None:
-        self.epoch = data["epoch"]
-        self.best_val_loss = data["best_val_loss"]
 
 
 class Trainer:
@@ -322,33 +301,6 @@ class Trainer:
 
     def val_step(self) -> dict[str, float]:
         return evaluate(self.model, self.val_loader, self.cfg.execution.dry_run)
-
-
-def evaluate(model: ConvNP, dataloader: DataLoader, dry_run: bool) -> dict[str, float]:
-    model.model.eval()
-    batch_losses = []
-    with torch.no_grad():
-        for batch in tqdm(dataloader):
-            if dry_run:
-                batch = batch[:1]
-
-            batch_losses.append(eval_on_batch(model, batch))
-
-            if dry_run:
-                break
-
-    val_loss = float(np.mean(batch_losses))
-    return {"val_loss": val_loss}
-
-
-def eval_on_batch(model: ConvNP, batch: list[Task]) -> float:
-    with torch.no_grad():
-        task_losses = []
-        for task in batch:
-            task_losses.append(model.loss_fn(task, normalise=True))
-        mean_batch_loss = torch.mean(torch.stack(task_losses))
-
-    return float(mean_batch_loss.detach().cpu().numpy())
 
 
 if __name__ == "__main__":

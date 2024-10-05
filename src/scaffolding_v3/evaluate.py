@@ -1,274 +1,191 @@
-# %%
-from typing import Any
+import sys
 
-import cartopy.crs as ccrs
-import cartopy.feature as cf
-import deepsensor.plot
-import deepsensor.torch
-import hydra
-import matplotlib as mpl
-import matplotlib.pyplot as plt
+import deepsensor.torch  # noqa
 import numpy as np
 import pandas as pd
+import torch
+from deepsensor import Task
+from deepsensor.model.convnp import ConvNP
 from deepsensor.train.train import set_gpu_default_device
-from mlbnb.checkpoint import CheckpointManager
-from mlbnb.paths import ExperimentPath, config_to_filepath
-from omegaconf import DictConfig
+from hydra.utils import instantiate
+from loguru import logger
+from mlbnb.checkpoint import CheckpointManager, TrainerState
+from mlbnb.paths import ExperimentPath, get_experiment_paths
+from mlbnb.types import Split
+from omegaconf import OmegaConf
+from torch.utils.data.dataloader import DataLoader
+from tqdm import tqdm
 
-from scaffolding_v3.config import (
-    SKIP_KEYS,
-    Config,
-    DataConfig,
-    DwdDataProviderConfig,
-    ExecutionConfig,
-    OutputConfig,
-    Paths,
-)
+from scaffolding_v3.config import SKIP_KEYS, Config, Paths
+from scaffolding_v3.data.dataset import make_dataset
 from scaffolding_v3.data.dwd import get_data_processor
-from scaffolding_v3.data.elevation import load_elevation_data
 
-# %%
-
-
-fontsize = 14
-crs = ccrs.PlateCarree()
-
-params = {
-    "axes.labelsize": fontsize,
-    "axes.titlesize": fontsize,
-    "font.size": fontsize,
-    "figure.titlesize": fontsize,
-    "legend.fontsize": fontsize,
-    "xtick.labelsize": fontsize,
-    "ytick.labelsize": fontsize,
-    "font.family": "sans-serif",
-    "figure.facecolor": "w",
-}
+logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 
 
-mpl.rcParams.update(params)
+def evaluate_all() -> pd.DataFrame:
+    df = make_eval_df(paths, load_eval_df())
+    df = evaluate_remaining(df)
+    save_df(df)
+    return df
 
 
-def gen_test_fig(
-    era5_raw_ds=None,
-    mean_ds=None,
-    std_ds=None,
-    samples_ds=None,
-    task=None,
-    extent: Any = None,
-    add_colorbar=False,
-    var_cmap="jet",
-    var_clim=None,
-    std_cmap="Greys",
-    std_clim=None,
-    var_cbar_label=None,
-    std_cbar_label=None,
-    fontsize=None,
-    figsize=(15, 5),
-):
-    if var_clim is None and era5_raw_ds is not None and mean_ds is not None:
-        vmin = np.array(min(era5_raw_ds.min(), mean_ds.min()))
-        vmax = np.array(max(era5_raw_ds.max(), mean_ds.max()))
-    elif var_clim is not None:
-        vmin, vmax = var_clim
+def load_eval_df() -> pd.DataFrame:
+    if not Paths.evaluation.exists():
+        # Include these columns to simplify the code later
+        df = pd.DataFrame(columns=["evaluated", "path", "epoch"])  # type: ignore
     else:
-        vmin = None
-        vmax = None
-
-    if std_clim is None and std_ds is not None:
-        std_vmin = np.array(std_ds.min())
-        std_vmax = np.array(std_ds.max())
-    elif std_clim is not None:
-        std_vmin, std_vmax = std_clim
-    else:
-        std_vmin = None
-        std_vmax = None
-
-    ncols = 0
-    if era5_raw_ds is not None:
-        ncols += 1
-    if mean_ds is not None:
-        ncols += 1
-    if std_ds is not None:
-        ncols += 1
-    if samples_ds is not None:
-        ncols += samples_ds.shape[0]
-
-    res = plt.subplots(1, ncols, subplot_kw=dict(projection=crs), figsize=figsize)
-    fig = res[0]
-    axes: np.ndarray = res[1]  # type: ignore
-
-    axis_i = 0
-    if era5_raw_ds is not None:
-        ax = axes[axis_i]
-        # era5_raw_ds.sel(lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())).plot(ax=ax, cmap="jet", vmin=vmin, vmax=vmax, add_colorbar=False)
-        era5_raw_ds.plot(
-            ax=ax,
-            cmap=var_cmap,
-            vmin=vmin,
-            vmax=vmax,
-            add_colorbar=add_colorbar,
-            cbar_kwargs=dict(label=var_cbar_label),
-        )
-        ax.set_title("ERA5", fontsize=fontsize)
-        axis_i += 1
-
-    if mean_ds is not None:
-        ax = axes[axis_i]
-        mean_ds.plot(
-            ax=ax,
-            cmap=var_cmap,
-            vmin=vmin,
-            vmax=vmax,
-            add_colorbar=add_colorbar,
-            cbar_kwargs=dict(label=var_cbar_label),
-        )
-        ax.set_title("ConvNP mean", fontsize=fontsize)
-        axis_i += 1
-
-    if samples_ds is not None:
-        for i in range(samples_ds.shape[0]):
-            ax = axes[axis_i]
-            samples_ds.isel(sample=i).plot(
-                ax=ax,
-                cmap=var_cmap,
-                vmin=vmin,
-                vmax=vmax,
-                add_colorbar=add_colorbar,
-                cbar_kwargs=dict(label=var_cbar_label),
-            )
-            ax.set_title(f"ConvNP sample {i+1}", fontsize=fontsize)
-            axis_i += 1
-
-    if std_ds is not None:
-        ax = axes[axis_i]
-        std_ds.plot(
-            ax=ax,
-            cmap=std_cmap,
-            add_colorbar=add_colorbar,
-            vmin=std_vmin,
-            vmax=std_vmax,
-            cbar_kwargs=dict(label=std_cbar_label),
-        )
-        ax.set_title("ConvNP std dev", fontsize=fontsize)
-        axis_i += 1
-
-    for ax in axes:
-        ax.add_feature(cf.BORDERS)
-        ax.coastlines()
-        if extent is not None:
-            ax.set_extent(extent)
-
-        ax.set_xticks(np.linspace(extent[0], extent[1], num=5), crs=crs)
-        ax.set_yticks(np.linspace(extent[2], extent[3], num=5), crs=crs)
-        ax.set_xticklabels(np.linspace(extent[0], extent[1], num=5), fontsize=fontsize)
-        ax.set_yticklabels(np.linspace(extent[2], extent[3], num=5), fontsize=fontsize)
-
-    if task is not None:
-        deepsensor.plot.offgrid_context(axes, task, data_processor, task_loader)
-    return fig, axes
+        df = pd.read_csv(Paths.evaluation)
+    return df.set_index("path")
 
 
-cfg = DictConfig(
-    Config(
-        execution=ExecutionConfig(dry_run=False),
-        output=OutputConfig(use_wandb=True),
-        data=DataConfig(data_provider=DwdDataProviderConfig(daily_averaged=False)),
+def make_eval_df(
+    paths: list[ExperimentPath],
+    initial_df: pd.DataFrame,
+) -> pd.DataFrame:
+    dfs = [initial_df]
+
+    for path in tqdm(paths):
+        config: Config = path.get_config()  # type: ignore
+
+        df = config_to_df(config)
+
+        trainer_state = get_trainer_state(path)
+
+        if is_already_evaluated(initial_df, path, trainer_state.epoch):
+            continue
+
+        df["path"] = path.root
+        df["epoch"] = trainer_state.epoch
+        df["val_loss"] = trainer_state.best_val_loss
+        df = df.set_index("path")
+        dfs.append(df)
+    df = pd.concat(dfs)
+    df["evaluated"] = df["evaluated"].astype(bool)
+    df = df.sort_values("val_loss", ascending=True)
+
+    return df
+
+
+def evaluate_remaining(df: pd.DataFrame) -> pd.DataFrame:
+    for path_str in tqdm(df[~df["evaluated"]].index):
+        path = ExperimentPath(path_str)  # type: ignore
+        config: Config = path.get_config()  # type: ignore
+
+        for metric_name, metric in compute_test_metrics(config).items():
+            df.loc[path_str, f"test_{metric_name}"] = metric
+        df.loc[path_str, "evaluated"] = True
+        save_df(df)
+    return df
+
+
+def compute_test_metrics(cfg: Config) -> dict[str, float]:
+    if cfg.execution.device == "cuda":
+        set_gpu_default_device()
+
+    generator = torch.Generator(device=cfg.execution.device).manual_seed(
+        cfg.execution.seed
     )
-)
-paths = Paths()
-
-if cfg.execution.device == "cuda":
-    set_gpu_default_device()
-
-data_processor = get_data_processor(paths)
-
-data_provider = hydra.utils.instantiate(cfg.data.data_provider)
-
-collate_fn = data_provider.get_collate_fn()
-
-test_dataset = data_provider.get_test_data()
-task_loader = test_dataset.task_loader
-
-model = hydra.utils.instantiate(cfg.model, data_processor, task_loader)
-
-path = ExperimentPath(config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS))
-print(path)
-checkpoint_manager = CheckpointManager(path)
-
-hires_aux_raw_ds = load_elevation_data(paths, 2000)
-
-# %%
-
-checkpoint = checkpoint_manager.load_checkpoint("best")
-model.model.load_state_dict(checkpoint.model_state)
-
-min_lat, max_lat = 47.5, 55
-min_lon, max_lon = 6, 15
-
-X_t = hires_aux_raw_ds.sel(lat=slice(max_lat, min_lat), lon=slice(min_lon, max_lon))
-X_t = X_t.coarsen(lat=2, lon=2, boundary="trim").mean()  # type: ignore
-
-if cfg.data.data_provider.daily_averaged:
-    test_time = pd.Timestamp("2023-02-05")
-else:
-    test_time = pd.Timestamp("2023-02-05 04:00:00")
-
-# for context_sampling in [20, 100, "all"]:
-for context_sampling in ["all"]:
-    test_task = task_loader(
-        test_time,
-        context_sampling=[context_sampling, "all"],
-        target_sampling="all",
+    data_processor = get_data_processor(cfg.paths)
+    data_provider = instantiate(cfg.data.data_provider)
+    testset = make_dataset(
+        cfg.data, cfg.paths, data_provider, Split.TEST, data_processor
     )
-    pred = model.predict(
-        test_task,
-        X_t=X_t,
-    )["t2m"]
 
-    mean_ds, std_ds = pred["mean"], pred["std"]
-
-    fig, axes = gen_test_fig(
-        # era5_raw_ds.sel(time=test_task['time'], lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())),
-        None,
-        mean_ds,
-        std_ds,
-        task=test_task,
-        add_colorbar=True,
-        var_cbar_label="2m temperature [°C]",
-        std_cbar_label="std dev [°C]",
-        # std_clim=(1, 3),
-        # var_clim=(0, 10),
-        extent=(min_lon, max_lon, min_lat, max_lat),
-        figsize=(20, 20 / 3),
+    test_loader: DataLoader = instantiate(
+        cfg.data.testloader,
+        testset,
+        generator=generator,
+        collate_fn=lambda x: x,
     )
-    plt.show()
-# %%
-latmax = 48.5
-latmin = 47.5
-lonmax = 13
-lonmin = 11
 
-# latmin = 51.0
-# latmax = 53
-# lonmin = 10
-# lonmax = 12
+    model = instantiate(cfg.model, data_processor, testset.task_loader)
 
-# latmin = 51.0
-# latmax = 53
-# lonmin = 7
-# lonmax = 9
-fig, axes = gen_test_fig(
-    # era5_raw_ds.sel(time=test_task['time'], lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())),
-    None,
-    mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
-    std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
-    task=test_task,  # type: ignore
-    add_colorbar=True,
-    var_cbar_label="2m temperature [°C]",
-    std_cbar_label="std dev [°C]",
-    extent=(lonmin, lonmax, latmin, latmax),
-    figsize=(20, 20 / 3),
+    return evaluate(model, test_loader, False)
+
+
+def evaluate(model: ConvNP, dataloader: DataLoader, dry_run: bool) -> dict[str, float]:
+    model.model.eval()
+    batch_losses = []
+    with torch.no_grad():
+        for batch in tqdm(dataloader):
+            if dry_run:
+                batch = batch[:1]
+
+            batch_losses.append(eval_on_batch(model, batch))
+
+            if dry_run:
+                break
+
+    val_loss = float(np.mean(batch_losses))
+    return {"val_loss": val_loss}
+
+
+def eval_on_batch(model: ConvNP, batch: list[Task]) -> float:
+    with torch.no_grad():
+        task_losses = []
+        for task in batch:
+            task_losses.append(model.loss_fn(task, normalise=True))
+        mean_batch_loss = torch.mean(torch.stack(task_losses))
+
+    return float(mean_batch_loss.detach().cpu().numpy())
+
+
+def config_to_df(config: Config) -> pd.DataFrame:
+    config_dict = OmegaConf.to_container(config, resolve=True)
+    flat_dict = pd.json_normalize(config_dict)  # type: ignore
+    df = pd.DataFrame(flat_dict)
+    df["evaluated"] = False
+    skip_cols = []
+    for col in df.columns:
+        for keys in col.split("."):
+            if keys in SKIP_KEYS:
+                skip_cols.append(col)
+                break
+    df = df.drop(columns=skip_cols)
+    return df
+
+
+def get_trainer_state(path: ExperimentPath) -> TrainerState:
+    checkpoint_manager = CheckpointManager(path)
+    checkpoint = checkpoint_manager.load_checkpoint("best")
+    if checkpoint.other_state is None:
+        raise ValueError(f"No other state found in checkpoint at path {path}")
+    return TrainerState.from_dict(checkpoint.other_state)
+
+
+def is_already_evaluated(
+    initial_df: pd.DataFrame, path: ExperimentPath, epoch: int
+) -> bool:
+    path_str = str(path)  # noqa
+    matching_rows = initial_df.query(
+        "path == @path_str and epoch == @epoch and evaluated"
+    )
+
+    return not matching_rows.empty
+
+
+def save_df(df: pd.DataFrame) -> None:
+    df = df.reset_index()
+    df.to_csv(Paths.evaluation, index=False)
+
+
+def era5_filter(cfg: Config) -> bool:
+    return cfg.data.data_provider._target_.split(".")[-1] == "Era5DataProvider"  # type: ignore
+
+
+def drop_boring_cols(df: pd.DataFrame):
+    """Drop columns that are the same for all experiments"""
+    droppable = [col for col in df.columns if len(df[col].unique()) == 1]
+    df = df.drop(columns=droppable)
+    return df
+
+
+paths = get_experiment_paths(
+    Paths.output,
+    filter=era5_filter,
 )
 
-# %%
+if __name__ == "__main__":
+    df = evaluate_all()
+    print(drop_boring_cols(df))
