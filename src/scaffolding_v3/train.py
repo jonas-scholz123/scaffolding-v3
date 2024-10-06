@@ -3,7 +3,6 @@ import warnings
 from typing import Optional
 
 import deepsensor.torch  # noqa
-import hydra
 import numpy as np
 import torch
 import torch.optim.lr_scheduler
@@ -23,6 +22,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import hydra
 from scaffolding_v3.config import (
     SKIP_KEYS,
     CheckpointOccasion,
@@ -38,12 +38,12 @@ from scaffolding_v3.plot.plot import Plotter
 load_config()
 
 
-@hydra.main(version_base=None, config_name="dev", config_path="../..")
+@hydra.main(version_base=None, config_name="dev", config_path="../../hydra")
 def main(cfg: Config):
     try:
         _configure_outputs(cfg)
 
-        logger.info(OmegaConf.to_yaml(cfg))
+        logger.debug(OmegaConf.to_yaml(cfg))
 
         if cfg.execution.device == "cuda":
             set_gpu_default_device()
@@ -52,6 +52,9 @@ def main(cfg: Config):
 
         trainer = Trainer.from_config(cfg)
         trainer.train_loop()
+        if cfg.output.use_wandb:
+            wandb.finish()
+        return trainer.state.best_val_loss
     except Exception as e:
         logger.exception("An error occurred during training: {}", e)
         raise e

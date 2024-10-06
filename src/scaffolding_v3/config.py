@@ -73,7 +73,7 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 4
+    batch_size: int = 128
     shuffle: bool = True
     num_workers: int = 0
 
@@ -208,9 +208,34 @@ class OutputConfig:
     plot_time: str = "2023-06-01 00:00:00"
 
 
+defaults = [
+    "_self_",
+    {"data": "sim"},
+    {"override hydra/sweeper": "optuna"},
+]
+
+hydra_config = {
+    # Disables hydra folder-based logging (covered by wandb)
+    "output_subdir": None,
+    "run": {"dir": "."},
+    "sweep": {"dir": "."},
+    "sweeper": {
+        "n_jobs": 1,  # Only 1 process
+        "params": {
+            # Limit dataset size/training length for faster sweepsa
+            "execution.epochs": 10,
+            "data.data_provider.num_times": 10000,
+            # Find good learning rate
+            "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
+        },
+    },
+}
+
+
 @dataclass
 class Config:
-    defaults: list = field(default_factory=lambda: ["_self_", {"data": "sim"}])
+    defaults: list = field(default_factory=lambda: defaults)
+    hydra: dict = field(default_factory=lambda: hydra_config)
     data: DataConfig = MISSING
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=AdamConfig)
