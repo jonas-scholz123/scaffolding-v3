@@ -1,3 +1,4 @@
+from pathlib import Path
 import sys
 import warnings
 from typing import Optional
@@ -38,7 +39,7 @@ from scaffolding_v3.plot.plot import Plotter
 load_config()
 
 
-@hydra.main(version_base=None, config_name="dev", config_path="../../hydra")
+@hydra.main(version_base=None, config_name="dev", config_path="")
 def main(cfg: Config):
     try:
         _configure_outputs(cfg)
@@ -127,7 +128,10 @@ class Trainer:
             best_val_loss=np.inf,
         )
 
-        if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
+        if not start_from:
+            return initial_state
+
+        if isinstance(start_from, CheckpointOccasion):
             self.checkpoint_manager.reproduce(
                 start_from.value,
                 self.model.model,
@@ -136,23 +140,32 @@ class Trainer:
                 self.scheduler,
                 initial_state,
             )
-
-            logger.info(
-                "Checkpoint loaded, best val loss: {}, epoch: {}",
-                initial_state.best_val_loss,
-                initial_state.epoch,
+        elif isinstance(start_from, Path):
+            self.checkpoint_manager.reproduce_from_path(
+                start_from,
+                self.model.model,
+                self.optimizer,
+                self.generator,
+                self.scheduler,
+                initial_state,
             )
 
-            # Checkpoint is at end of epoch, add 1 for next epoch.
-            initial_state.epoch += 1
-            if initial_state.epoch < self.cfg.execution.epochs:
-                logger.info("Checkpoint loaded, initial state {}", initial_state)
-            else:
-                logger.info(
-                    "Checkpoint loaded, run has concluded (epoch {} / {})",
-                    initial_state.epoch - 1,
-                    self.cfg.execution.epochs,
-                )
+        logger.info(
+            "Checkpoint loaded, best val loss: {}, epoch: {}",
+            initial_state.best_val_loss,
+            initial_state.epoch,
+        )
+
+        # Checkpoint is at end of epoch, add 1 for next epoch.
+        initial_state.epoch += 1
+        if initial_state.epoch < self.cfg.execution.epochs:
+            logger.info("Checkpoint loaded, initial state {}", initial_state)
+        else:
+            logger.info(
+                "Checkpoint loaded, run has concluded (epoch {} / {})",
+                initial_state.epoch - 1,
+                self.cfg.execution.epochs,
+            )
         return initial_state
 
     @staticmethod

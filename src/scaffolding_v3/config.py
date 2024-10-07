@@ -195,7 +195,7 @@ class ExecutionConfig:
     dry_run: bool = True
     epochs: int = 80
     seed: int = 42
-    start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
+    start_from: Optional[CheckpointOccasion | Path] = CheckpointOccasion.LATEST
 
 
 @dataclass
