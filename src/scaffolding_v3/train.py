@@ -122,27 +122,37 @@ class Trainer:
 
     def _load_initial_state(self) -> TrainerState:
         start_from = self.cfg.execution.start_from
+        pretrained_model_path = self.cfg.execution.pretrained_model_path
 
         initial_state = TrainerState(
             epoch=1,
             best_val_loss=np.inf,
         )
 
+        if pretrained_model_path:
+            try:
+                checkpoint = CheckpointManager.load_checkpoint_from_path(
+                    pretrained_model_path
+                )
+                self.model.model.load_state_dict(checkpoint.model_state)
+            except FileNotFoundError:
+                logger.warning(
+                    "Pretrained model path {} does not exist, starting from scratch.",
+                    pretrained_model_path,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Error loading pretrained model from path {}, starting from scratch: {}",
+                    pretrained_model_path,
+                    e,
+                )
+
         if not start_from:
             return initial_state
 
-        if isinstance(start_from, CheckpointOccasion):
+        if self.checkpoint_manager.checkpoint_exists(start_from.value):
             self.checkpoint_manager.reproduce(
                 start_from.value,
-                self.model.model,
-                self.optimizer,
-                self.generator,
-                self.scheduler,
-                initial_state,
-            )
-        elif isinstance(start_from, Path):
-            self.checkpoint_manager.reproduce_from_path(
-                start_from,
                 self.model.model,
                 self.optimizer,
                 self.generator,

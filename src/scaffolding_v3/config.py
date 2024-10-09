@@ -195,7 +195,8 @@ class ExecutionConfig:
     dry_run: bool = True
     epochs: int = 80
     seed: int = 42
-    start_from: Optional[CheckpointOccasion | Path] = CheckpointOccasion.LATEST
+    start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
+    pretrained_model_path: Optional[Path] = None
 
 
 @dataclass
@@ -229,6 +230,7 @@ hydra_config = {
             "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
         },
     },
+    "mode": "RUN",  # Workaround for https://github.com/facebookresearch/hydra/issues/2262
 }
 
 
