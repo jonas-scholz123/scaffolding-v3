@@ -5,6 +5,7 @@ from deepsensor.data.processor import DataProcessor
 from hydra.utils import instantiate
 from mlbnb.cache import CachedDataset
 from mlbnb.types import Split
+import torch
 from torch.utils.data import Dataset
 
 from scaffolding_v3.config import DataConfig, Paths
@@ -39,11 +40,16 @@ class TaskLoaderDataset(Dataset):
 
         context_frac = np.random.rand()
 
+        # Deepsensor messes with the default RNG and is not runwise deterministic
+        # unless we set this override
+        seed_override = int(torch.randint(0, 100_000_000, (1,)))
+
         if self.include_context_in_target:
             return self.task_loader(
                 time,
                 context_sampling=[context_frac, "all"],
                 target_sampling="all",
+                seed_override=seed_override,
             )
         else:
             return self.task_loader(
@@ -51,6 +57,7 @@ class TaskLoaderDataset(Dataset):
                 context_sampling=["split", "all"],
                 target_sampling="split",
                 split_frac=context_frac,
+                seed_override=seed_override,
             )
 
 
