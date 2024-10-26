@@ -41,16 +41,17 @@ class Paths:
 class ModelConfig:
     _target_: str = "deepsensor.model.ConvNP"
     internal_density: int = ppu
-    unet_channels: tuple[int, ...] = (64,) * 4  # type: ignore
-    aux_t_mlp_layers: tuple[int, ...] = (64,) * 3  # type: ignore
+    unet_channels: tuple = (64,) * 4  # type: ignore
+    aux_t_mlp_layers: tuple = (64,) * 3  # type: ignore
     likelihood: str = "cnp"
     encoder_scales: float = 0.5 / ppu
     decoder_scale: float = 0.5 / ppu
+    verbose: bool = False
 
 
 @dataclass
 class OptimizerConfig:
-    lr: float = 1e-3
+    lr: float = 2.5e-3
 
 
 @dataclass
@@ -61,7 +62,6 @@ class AdadeltaConfig(OptimizerConfig):
 @dataclass
 class AdamConfig(OptimizerConfig):
     _target_: str = "torch.optim.Adam"
-    lr: float = 1e-4
 
 
 @dataclass
@@ -73,7 +73,7 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 128
+    batch_size: int = 32
     shuffle: bool = True
     num_workers: int = 0
 
@@ -181,7 +181,7 @@ class SchedulerConfig:
 class StepLRConfig(SchedulerConfig):
     _target_: str = "torch.optim.lr_scheduler.StepLR"
     step_size: int = 10
-    gamma: float = 0.5
+    gamma: float = 0.8
 
 
 class CheckpointOccasion(Enum):
