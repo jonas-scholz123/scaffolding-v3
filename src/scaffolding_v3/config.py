@@ -41,8 +41,8 @@ class Paths:
 class ModelConfig:
     _target_: str = "deepsensor.model.ConvNP"
     internal_density: int = ppu
-    unet_channels: tuple = (64,) * 4
-    aux_t_mlp_layers: tuple = (64,) * 3
+    unet_channels: tuple[int, ...] = (64,) * 4  # type: ignore
+    aux_t_mlp_layers: tuple[int, ...] = (64,) * 3  # type: ignore
     likelihood: str = "cnp"
     encoder_scales: float = 0.5 / ppu
     decoder_scale: float = 0.5 / ppu
