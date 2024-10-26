@@ -1,9 +1,9 @@
-from pathlib import Path
 import sys
 import warnings
 from typing import Optional
 
 import deepsensor.torch  # noqa
+import hydra
 import numpy as np
 import torch
 import torch.optim.lr_scheduler
@@ -18,12 +18,12 @@ from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
 from mlbnb.types import Split
 from omegaconf import OmegaConf
+from sqlalchemy.exc import MovedIn20Warning
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-import hydra
 from scaffolding_v3.config import (
     SKIP_KEYS,
     CheckpointOccasion,
@@ -65,14 +65,15 @@ def _configure_outputs(cfg: Config):
     load_dotenv()
     logger.configure(handlers=[{"sink": sys.stdout, "level": cfg.output.log_level}])
 
+    # These are all due to deprecation warnings raised within dependencies.
     warnings.filterwarnings(
         "ignore", category=DeprecationWarning, module="google.protobuf"
     )
     warnings.filterwarnings("ignore", category=DeprecationWarning, module="deepsensor")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="lab")
+    warnings.filterwarnings("ignore", category=MovedIn20Warning)
 
     if cfg.output.use_wandb:
-        # Opt in to new wandb backend
-        wandb.require("core")
         wandb.init(
             project="scaffolding_v3",
             config=OmegaConf.to_container(cfg),  # type: ignore
@@ -125,7 +126,7 @@ class Trainer:
         pretrained_model_path = self.cfg.execution.pretrained_model_path
 
         initial_state = TrainerState(
-            epoch=1,
+            epoch=0,
             best_val_loss=np.inf,
         )
 
@@ -147,10 +148,7 @@ class Trainer:
                     e,
                 )
 
-        if not start_from:
-            return initial_state
-
-        if self.checkpoint_manager.checkpoint_exists(start_from.value):
+        if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
             self.checkpoint_manager.reproduce(
                 start_from.value,
                 self.model.model,
@@ -160,20 +158,21 @@ class Trainer:
                 initial_state,
             )
 
-        logger.info(
-            "Checkpoint loaded, best val loss: {}, epoch: {}",
-            initial_state.best_val_loss,
-            initial_state.epoch,
-        )
+            logger.info(
+                "Checkpoint loaded, best val loss: {}, epoch: {}",
+                initial_state.best_val_loss,
+                initial_state.epoch,
+            )
+        else:
+            logger.info("Starting from scratch")
 
-        # Checkpoint is at end of epoch, add 1 for next epoch.
-        initial_state.epoch += 1
         if initial_state.epoch < self.cfg.execution.epochs:
-            logger.info("Checkpoint loaded, initial state {}", initial_state)
+            # Checkpoint is at end of epoch, add 1 for next epoch.
+            initial_state.epoch += 1
         else:
             logger.info(
-                "Checkpoint loaded, run has concluded (epoch {} / {})",
-                initial_state.epoch - 1,
+                "Run has concluded (epoch {} / {})",
+                initial_state.epoch,
                 self.cfg.execution.epochs,
             )
         return initial_state
@@ -254,8 +253,6 @@ class Trainer:
 
         metric_logger = MetricLogger(self.cfg.output.use_wandb)
 
-        best_val_loss = float("inf")
-
         if self.plotter:
             self.plotter.plot_task(self.train_loader.dataset[0])
             self.plotter.plot_context_encoding(self.model, self.train_loader.dataset[0])
@@ -269,9 +266,9 @@ class Trainer:
 
             self.save_checkpoint(CheckpointOccasion.LATEST)
 
-            if val_metrics["val_loss"] < best_val_loss:
+            if val_metrics["val_loss"] < s.best_val_loss:
                 logger.info("New best val loss: {}", val_metrics["val_loss"])
-                best_val_loss = val_metrics["val_loss"]
+                s.best_val_loss = val_metrics["val_loss"]
                 self.save_checkpoint(CheckpointOccasion.BEST)
 
             if self.scheduler:
@@ -281,7 +278,7 @@ class Trainer:
                 self.plotter.plot_prediction(self.model, s.epoch)
 
             s.epoch += 1
-            s.best_val_loss = best_val_loss
+            s.best_val_loss = s.best_val_loss
 
         logger.success("Finished training")
 
