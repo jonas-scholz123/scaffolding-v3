@@ -1,4 +1,3 @@
-# %%
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -117,6 +116,8 @@ def process_dwd():
 
     df = pd.concat(dfs, ignore_index=True)
     meta_df = pd.concat(meta_dfs, ignore_index=True)
+    # Duplicates from "historical" vs "current" data folders.
+    meta_df = meta_df.drop_duplicates()
     geometry = gpd.points_from_xy(meta_df.lon, meta_df.lat)
     meta_df = gpd.GeoDataFrame(meta_df, geometry=geometry)
     meta_df.crs = dwd_cfg.crs_str
@@ -266,5 +267,3 @@ if __name__ == "__main__":
     meta = pd.read_parquet(paths.dwd_meta)
     if "is_test_station" not in df.columns:
         annotate_test_stations(df, meta)
-
-# %%
