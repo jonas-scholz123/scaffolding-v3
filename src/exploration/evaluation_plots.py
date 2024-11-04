@@ -1,4 +1,5 @@
 # %%
+from pathlib import Path
 from typing import Any
 
 import cartopy.crs as ccrs
@@ -10,13 +11,11 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch
 from deepsensor.train.train import set_gpu_default_device
-from mlbnb.checkpoint import CheckpointManager
-from mlbnb.paths import ExperimentPath, config_to_filepath
 from omegaconf import DictConfig
 
 from scaffolding_v3.config import (
-    SKIP_KEYS,
     Config,
     DataConfig,
     DwdDataProviderConfig,
@@ -24,12 +23,11 @@ from scaffolding_v3.config import (
     OutputConfig,
     Paths,
 )
+from scaffolding_v3.data.dataset import make_taskloader
 from scaffolding_v3.data.dwd import get_data_processor
 from scaffolding_v3.data.elevation import load_elevation_data
 
 # %%
-
-
 fontsize = 14
 crs = ccrs.PlateCarree()
 
@@ -185,22 +183,34 @@ data_processor = get_data_processor(paths)
 
 data_provider = hydra.utils.instantiate(cfg.data.data_provider)
 
-collate_fn = data_provider.get_collate_fn()
-
 test_dataset = data_provider.get_test_data()
-task_loader = test_dataset.task_loader
+task_loader = make_taskloader(cfg.data, paths, data_processor, test_dataset)
 
 model = hydra.utils.instantiate(cfg.model, data_processor, task_loader)
 
-path = ExperimentPath(config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS))
-print(path)
-checkpoint_manager = CheckpointManager(path)
-
 hires_aux_raw_ds = load_elevation_data(paths, 2000)
-
 # %%
 
-checkpoint = checkpoint_manager.load_checkpoint("best")
+# Best ERA5 model, some artifacts, checkboard pattern
+sim_path = Path("/home/jonas/Documents/code/scaffolding-v3/_weights/era5/best_era5.pt")
+
+# "Successful" trained on DWD data from scratch (no pretraining), still get checkerboard pattern. Why not in Toms script?
+real_path = Path(
+    "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=1_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=1.0e-05/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=false/checkpoints/best.pt"
+)
+
+# "Successful" finetune, quite strong artifacts visible - similar to thesis.
+sim2real_path = Path(
+    "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=32_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=1.0e-04/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=true/checkpoints/best.pt"
+)
+
+# Really bad "artifacts"/failed training. What went wrong here?
+bad_real_path = Path(
+    "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=32_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=2.5e-03/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=false/checkpoints/best.pt"
+)
+
+checkpoint = torch.load(sim2real_path)
+
 model.model.load_state_dict(checkpoint.model_state)
 
 min_lat, max_lat = 47.5, 55
@@ -214,8 +224,10 @@ if cfg.data.data_provider.daily_averaged:
 else:
     test_time = pd.Timestamp("2023-02-05 04:00:00")
 
+test_time = test_dataset.times[-1]
+
 # for context_sampling in [20, 100, "all"]:
-for context_sampling in ["all"]:
+for context_sampling in [20]:
     test_task = task_loader(
         test_time,
         context_sampling=[context_sampling, "all"],
@@ -244,15 +256,25 @@ for context_sampling in ["all"]:
     )
     plt.show()
 # %%
-latmax = 48.5
-latmin = 47.5
-lonmax = 13
-lonmin = 11
+# latmax = 48.5
+# latmin = 47.5
+# lonmax = 13
+# lonmin = 11
 
-# latmin = 51.0
-# latmax = 53
-# lonmin = 10
-# lonmax = 12
+# latmax = 54
+# latmin = 51
+# lonmax = 15
+# lonmin = 12
+
+latmin = 51.0
+latmax = 53
+lonmin = 10
+lonmax = 12
+
+latmin = 53.0
+latmax = 55
+lonmin = 9
+lonmax = 11
 
 # latmin = 51.0
 # latmax = 53

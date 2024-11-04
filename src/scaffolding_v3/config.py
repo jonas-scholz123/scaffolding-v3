@@ -35,6 +35,7 @@ class Paths:
     data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
     evaluation: Path = output / "evaluation.csv"
+    pretrained_model_path: Path = root / "_weights" / "era5" / "best_era5.pt"
 
 
 @dataclass
@@ -193,10 +194,10 @@ class CheckpointOccasion(Enum):
 class ExecutionConfig:
     device: str = "cuda"
     dry_run: bool = True
-    epochs: int = 80
+    epochs: int = 300
     seed: int = 42
     start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
-    pretrained_model_path: Optional[Path] = None
+    use_pretrained: bool = False
 
 
 @dataclass
@@ -215,6 +216,16 @@ defaults = [
     {"override hydra/sweeper": "optuna"},
 ]
 
+lr_tuning_params = {
+    # Limit dataset size/training length for faster sweepsa
+    "execution.epochs": 10,
+    "data.data_provider.num_times": 10000,
+    # Find good learning rate
+    "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
+}
+
+varying_stations_params = {"data.data_provider.num_stations": "20,100,500"}
+
 hydra_config = {
     # Disables hydra folder-based logging (covered by wandb)
     "output_subdir": None,
@@ -222,13 +233,7 @@ hydra_config = {
     "sweep": {"dir": "."},
     "sweeper": {
         "n_jobs": 1,  # Only 1 process
-        "params": {
-            # Limit dataset size/training length for faster sweepsa
-            "execution.epochs": 10,
-            "data.data_provider.num_times": 10000,
-            # Find good learning rate
-            "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
-        },
+        "params": lr_tuning_params,
     },
     "mode": "RUN",  # Workaround for https://github.com/facebookresearch/hydra/issues/2262
 }
@@ -257,6 +262,14 @@ def load_config() -> None:
     cs.store(
         name="dev",
         node=Config(),
+    )
+    cs.store(
+        name="prod-finetune",
+        node=Config(
+            execution=ExecutionConfig(epochs=40, use_pretrained=True, dry_run=False),
+            # Slightly smaller learning rate for fine-tuning
+            optimizer=AdamConfig(lr=1e-4),
+        ),
     )
     cs.store(
         name="prod",

@@ -1,21 +1,18 @@
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-from typing import Tuple
-import urllib.request
 import os
-import pandas as pd
-from tqdm import tqdm
-from zipfile import ZipFile, BadZipFile
-from scaffolding_v3.config import DwdConfig, Paths
+import urllib.request
+from urllib.parse import urljoin
+from zipfile import BadZipFile, ZipFile
 
-from scaffolding_v3.data.dwd import get_dwd_data
-from mlbnb.file import ensure_parent_exists
 import geopandas as gpd
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 from loguru import logger
+from mlbnb.file import ensure_parent_exists
+from tqdm import tqdm
+
+from scaffolding_v3.config import DwdConfig, Paths
+from scaffolding_v3.data.dwd import get_dwd_data
 
 paths = Paths()
 dwd_cfg = DwdConfig()
@@ -228,7 +225,6 @@ def annotate_test_stations(df: pd.DataFrame, meta: pd.DataFrame) -> None:
 
 
 def get_test_station_ids() -> set[int]:
-
     value_df = pd.read_parquet(paths.value_stations)
 
     # Strip whitespace:

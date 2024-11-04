@@ -1,28 +1,27 @@
 # %%
-from deepsensor import Task
-from deepsensor.model.convnp import ConvNP
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-from mlbnb.types import Split
-import deepsensor.torch  # noqa
-from scaffolding_v3.data.dataset import make_dataset, make_taskloader
-from scaffolding_v3.data.dwd import get_dwd_data
-from scaffolding_v3.config import Config, DataConfig, DwdDataProviderConfig
-from scaffolding_v3.plot.plot import make_uniform_grid
-from hydra.utils import instantiate
 import cartopy.crs as ccrs
 import cartopy.feature as feature
-
-from scaffolding_v3.data.dwd import get_data_processor
+import deepsensor.torch  # noqa
+import matplotlib.pyplot as plt
+import numpy as np
+from deepsensor import Task
+from deepsensor.model.convnp import ConvNP
 from deepsensor.plot import offgrid_context
-import xarray as xr
+from hydra.utils import instantiate
+from matplotlib.figure import Figure
+from mlbnb.types import Split
+
+from scaffolding_v3.config import Config, DataConfig, DwdDataProviderConfig
+from scaffolding_v3.data.dataprovider import DataProvider
+from scaffolding_v3.data.dataset import make_dataset
+from scaffolding_v3.data.dwd import get_data_processor, get_dwd_data
+from scaffolding_v3.plot.util import make_uniform_grid
 
 # %%
 
 cfg = Config(data=DataConfig(data_provider=DwdDataProviderConfig()))
 
-data_provider = instantiate(cfg.data.data_provider)
+data_provider: DataProvider = instantiate(cfg.data.data_provider)
 data_processor = get_data_processor(cfg.paths)
 dataset = make_dataset(cfg.data, cfg.paths, data_provider, Split.VAL, data_processor)
 task_loader = dataset.task_loader
@@ -37,7 +36,7 @@ geo = cfg.geo
 bounds = (geo.min_lon, geo.max_lon, geo.min_lat, geo.max_lat)
 
 
-def plot_prediction(task: Task, model: ConvNP, cmap: str = "jet"):
+def plot_prediction(task: Task, model: ConvNP, cmap: str = "jet") -> Figure:
     def lons_and_lats(df):
         lats = df.index.get_level_values("lat")
         lons = df.index.get_level_values("lon")
@@ -52,12 +51,10 @@ def plot_prediction(task: Task, model: ConvNP, cmap: str = "jet"):
     err_da = mean_ds - truth
     err_da = err_da.dropna()
 
-    hires_grid = make_uniform_grid(*bounds, resolution=0.1)
+    hires_grid = make_uniform_grid(*bounds, resolution=0.01)
     # Higher resolution prediction everywhere.
     pred = model.predict(task, X_t=hires_grid, resolution_factor=1)["t2m"]
     mean_ds, std_ds = pred["mean"], pred["std"]
-
-    mean = mean_ds
 
     proj = ccrs.TransverseMercator(central_longitude=10, approx=False)
 
@@ -138,11 +135,16 @@ def plot_prediction(task: Task, model: ConvNP, cmap: str = "jet"):
         ax.set_extent(bounds, crs=transform)
         ax.add_feature(feature.BORDERS, linewidth=0.25)
         ax.coastlines(linewidth=0.25)
+    return fig
 
 
 if isinstance(task, Task):
-    plot_prediction(task, model, res_factor=1, cmap="jet")
-# %%
-truth = dwd_data.xs(time, level="time")
+    fig = plot_prediction(task, model, cmap="jet")
+    out_path = cfg.paths.output / "prediction.png"
+    fig.savefig(out_path, dpi=300)
 
-mean_ds, std_ds = model.predict(task, X_t=truth)
+# %%
+data_provider: DataProvider = instantiate(cfg.data.data_provider)
+test_data = data_provider.get_test_data()
+# %%
+test_data.target["t2m"]

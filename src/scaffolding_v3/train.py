@@ -34,7 +34,7 @@ from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
 from scaffolding_v3.data.dataset import make_dataset
 from scaffolding_v3.data.dwd import get_data_processor
 from scaffolding_v3.evaluate import evaluate
-from scaffolding_v3.plot.plot import Plotter
+from scaffolding_v3.plot.plotter import Plotter
 
 load_config()
 
@@ -123,19 +123,23 @@ class Trainer:
 
     def _load_initial_state(self) -> TrainerState:
         start_from = self.cfg.execution.start_from
-        pretrained_model_path = self.cfg.execution.pretrained_model_path
 
         initial_state = TrainerState(
             epoch=0,
             best_val_loss=np.inf,
         )
 
-        if pretrained_model_path:
+        if self.cfg.execution.use_pretrained:
+            pretrained_model_path = self.cfg.paths.pretrained_model_path
             try:
                 checkpoint = CheckpointManager.load_checkpoint_from_path(
                     pretrained_model_path
                 )
                 self.model.model.load_state_dict(checkpoint.model_state)
+                logger.info(
+                    "Pretrained model loaded from path {}, starting from pretrained.",
+                    pretrained_model_path,
+                )
             except FileNotFoundError:
                 logger.warning(
                     "Pretrained model path {} does not exist, starting from scratch.",
@@ -267,7 +271,7 @@ class Trainer:
             self.save_checkpoint(CheckpointOccasion.LATEST)
 
             if val_metrics["val_loss"] < s.best_val_loss:
-                logger.info("New best val loss: {}", val_metrics["val_loss"])
+                logger.success("New best val loss: {}", val_metrics["val_loss"])
                 s.best_val_loss = val_metrics["val_loss"]
                 self.save_checkpoint(CheckpointOccasion.BEST)
 
