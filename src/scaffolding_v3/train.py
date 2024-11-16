@@ -40,7 +40,7 @@ load_config()
 
 
 @hydra.main(version_base=None, config_name="dev", config_path="")
-def main(cfg: Config):
+def main(cfg: Config) -> float:
     try:
         _configure_outputs(cfg)
 

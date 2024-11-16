@@ -1,6 +1,9 @@
 import sys
+from pathlib import Path
+from typing import Iterable
 
 import deepsensor.torch  # noqa
+import hydra
 import numpy as np
 import pandas as pd
 import torch
@@ -16,27 +19,50 @@ from omegaconf import OmegaConf
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
-from scaffolding_v3.config import SKIP_KEYS, Config, Paths
+from scaffolding_v3.config import SKIP_KEYS, Config, Paths, load_config
 from scaffolding_v3.data.dataset import make_dataset
 from scaffolding_v3.data.dwd import get_data_processor
 
 logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 
+load_config()
 
-def evaluate_all() -> pd.DataFrame:
-    df = make_eval_df(paths, load_eval_df())
-    df = evaluate_remaining(df)
-    save_df(df)
+
+@hydra.main(version_base=None, config_name="dev", config_path="")
+def main(eval_cfg: Config) -> None:
+    df = evaluate_all(eval_cfg)
+    print(drop_boring_cols(df))
+
+
+def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
+    # If dry run requested, only evaluate dry run experiments and vice versa
+    def dry_run_filter(cfg: Config) -> bool:
+        return cfg.execution.dry_run == eval_cfg.execution.dry_run
+
+    logger.info("Initializing evaluation dataframe")
+    paths = get_experiment_paths(Paths.output, dry_run_filter)
+    df = make_eval_df(paths, load_eval_df(_extract_data_provider_name(eval_cfg)))
+    logger.info("Evaluate unevaluated experiments")
+    df = evaluate_remaining(df, eval_cfg)
     return df
 
 
-def load_eval_df() -> pd.DataFrame:
-    if not Paths.evaluation.exists():
+def load_eval_df(data_provider_name: str) -> pd.DataFrame:
+    path = _get_csv_fpath(data_provider_name)
+    if not path.exists():
         # Include these columns to simplify the code later
         df = pd.DataFrame(columns=["evaluated", "path", "epoch"])  # type: ignore
     else:
-        df = pd.read_csv(Paths.evaluation)
+        df = pd.read_csv(path)
     return df.set_index("path")
+
+
+def _get_csv_fpath(data_provider_name: str) -> Path:
+    return Paths.output / f"evaluation_{data_provider_name}.csv"
+
+
+def _extract_data_provider_name(cfg: Config) -> str:
+    return cfg.data.data_provider._target_.split(".")[-1]  # type: ignore
 
 
 def make_eval_df(
@@ -46,9 +72,9 @@ def make_eval_df(
     dfs = [initial_df]
 
     for path in tqdm(paths):
-        config: Config = path.get_config()  # type: ignore
+        experiment_cfg: Config = path.get_config()  # type: ignore
 
-        df = config_to_df(config)
+        df = config_to_df(experiment_cfg)
 
         trainer_state = get_trainer_state(path)
 
@@ -67,48 +93,58 @@ def make_eval_df(
     return df
 
 
-def evaluate_remaining(df: pd.DataFrame) -> pd.DataFrame:
-    for path_str in tqdm(df[~df["evaluated"]].index):
-        path = ExperimentPath(path_str)  # type: ignore
-        config: Config = path.get_config()  # type: ignore
+def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
+    if df[~df["evaluated"]].empty:
+        logger.info("All experiments have been evaluated")
+        return df
 
-        for metric_name, metric in compute_test_metrics(config).items():
-            df.loc[path_str, f"test_{metric_name}"] = metric
-        df.loc[path_str, "evaluated"] = True
-        save_df(df)
-    return df
-
-
-def compute_test_metrics(cfg: Config) -> dict[str, float]:
-    if cfg.execution.device == "cuda":
+    if eval_cfg.execution.device == "cuda":
         set_gpu_default_device()
 
-    generator = torch.Generator(device=cfg.execution.device).manual_seed(
-        cfg.execution.seed
+    generator = torch.Generator(device=eval_cfg.execution.device).manual_seed(
+        eval_cfg.execution.seed
     )
-    data_processor = get_data_processor(cfg.paths)
-    data_provider = instantiate(cfg.data.data_provider)
+    data_processor = get_data_processor(eval_cfg.paths)
+    data_provider = instantiate(eval_cfg.data.data_provider)
     testset = make_dataset(
-        cfg.data, cfg.paths, data_provider, Split.TEST, data_processor
+        eval_cfg.data, eval_cfg.paths, data_provider, Split.TEST, data_processor
     )
 
     test_loader: DataLoader = instantiate(
-        cfg.data.testloader,
+        eval_cfg.data.testloader,
         testset,
         generator=generator,
         collate_fn=lambda x: x,
     )
 
-    model = instantiate(cfg.model, data_processor, testset.task_loader)
+    # Load all data into memory
+    eval_data = list(test_loader)
 
-    return evaluate(model, test_loader, False)
+    for path_str in tqdm(df[~df["evaluated"]].index):
+        logger.info(f"Evaluating {path_str}")
+        path = ExperimentPath(path_str)  # type: ignore
+        experiment_cfg: Config = path.get_config()  # type: ignore
+        checkpoint_manager = CheckpointManager(path)
+        model: ConvNP = instantiate(
+            experiment_cfg.model, data_processor, testset.task_loader
+        )
+        checkpoint_manager.reproduce_model(model.model, "best")
+
+        test_metrics = evaluate(model, eval_data, False)
+
+        for metric_name, metric in test_metrics.items():
+            df.loc[path_str, f"test_{metric_name}"] = metric
+        df.loc[path_str, "evaluated"] = True
+        if not eval_cfg.execution.dry_run:
+            save_df(df, _extract_data_provider_name(eval_cfg))
+    return df
 
 
-def evaluate(model: ConvNP, dataloader: DataLoader, dry_run: bool) -> dict[str, float]:
+def evaluate(model: ConvNP, eval_data: Iterable, dry_run: bool) -> dict[str, float]:
     model.model.eval()
     batch_losses = []
     with torch.no_grad():
-        for batch in tqdm(dataloader):
+        for batch in tqdm(eval_data):
             if dry_run:
                 batch = batch[:1]
 
@@ -165,27 +201,24 @@ def is_already_evaluated(
     return not matching_rows.empty
 
 
-def save_df(df: pd.DataFrame) -> None:
+def save_df(df: pd.DataFrame, data_name: str) -> None:
     df = df.reset_index()
-    df.to_csv(Paths.evaluation, index=False)
+    path = _get_csv_fpath(data_name)
+    df.to_csv(path, index=False)
 
 
 def era5_filter(cfg: Config) -> bool:
-    return cfg.data.data_provider._target_.split(".")[-1] == "Era5DataProvider"  # type: ignore
+    return cfg.data.data_provider._target_.split(".")[-1] == "DwdDataProvider"  # type: ignore
 
 
 def drop_boring_cols(df: pd.DataFrame):
     """Drop columns that are the same for all experiments"""
     droppable = [col for col in df.columns if len(df[col].unique()) == 1]
+    droppable += ["data.data_provider.train_range", "data.data_provider.test_range"]
+    logger.warning(f"Dropping columns {droppable}")
     df = df.drop(columns=droppable)
     return df
 
 
-paths = get_experiment_paths(
-    Paths.output,
-    filter=era5_filter,
-)
-
 if __name__ == "__main__":
-    df = evaluate_all()
-    print(drop_boring_cols(df))
+    main()

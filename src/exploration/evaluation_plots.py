@@ -199,17 +199,18 @@ real_path = Path(
     "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=1_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=1.0e-05/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=false/checkpoints/best.pt"
 )
 
-# "Successful" finetune, quite strong artifacts visible - similar to thesis.
-sim2real_path = Path(
-    "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=32_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=1.0e-04/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=true/checkpoints/best.pt"
-)
-
 # Really bad "artifacts"/failed training. What went wrong here?
 bad_real_path = Path(
     "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=32_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=2.5e-03/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=false/checkpoints/best.pt"
 )
 
-checkpoint = torch.load(sim2real_path)
+# "Successful" finetune, quite strong artifacts visible - similar to thesis.
+sim2real_path = Path(
+    "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=32_shuffle=true_num_workers=0_include_aux_at_targets=true_include_context_in_target=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_aux_t_mlp_layers=64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=3.3e-03_verbose=false/OPTIMIZER:Adam_lr=1.0e-04/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_use_pretrained=true/checkpoints/best.pt"
+)
+
+
+checkpoint = torch.load(real_path)
 
 model.model.load_state_dict(checkpoint.model_state)
 
@@ -227,11 +228,12 @@ else:
 test_time = test_dataset.times[-1]
 
 # for context_sampling in [20, 100, "all"]:
-for context_sampling in [20]:
+for context_sampling in [100]:
     test_task = task_loader(
         test_time,
         context_sampling=[context_sampling, "all"],
         target_sampling="all",
+        seed_override=42,
     )
     pred = model.predict(
         test_task,
@@ -266,20 +268,25 @@ for context_sampling in [20]:
 # lonmax = 15
 # lonmin = 12
 
-latmin = 51.0
-latmax = 53
+latmin = 50
+latmax = 52
 lonmin = 10
-lonmax = 12
+lonmax = 13
 
-latmin = 53.0
-latmax = 55
-lonmin = 9
-lonmax = 11
+#latmin = 53.0
+#latmax = 55
+#lonmin = 9
+#lonmax = 11
 
 # latmin = 51.0
 # latmax = 53
 # lonmin = 7
 # lonmax = 9
+
+#latmin = 50
+#latmax = 52
+#lonmin = 6
+#lonmax = 8
 fig, axes = gen_test_fig(
     # era5_raw_ds.sel(time=test_task['time'], lat=slice(mean_ds["lat"].min(), mean_ds["lat"].max()), lon=slice(mean_ds["lon"].min(), mean_ds["lon"].max())),
     None,
