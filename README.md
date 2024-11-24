@@ -46,3 +46,18 @@ Real:
 ```
 python src/scaffolding_v3/train.py -cn prod data=real
 ```
+
+Sim2Real:
+```
+python src/scaffolding_v3/train.py -cn prod-finetune
+```
+
+#### Running any process in background
+
+Use nohup to run any process in the background.
+This will allow the process to continue running even after you close the terminal
+or terminate the ssh session.
+```
+CMD="python src/scaffolding_v3/train.py -cn prod"
+nohup ${CMD} output.use_tqdm=False > _output/nohup.out 2>&1 &
+```
