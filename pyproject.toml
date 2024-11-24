@@ -27,6 +27,7 @@ dependencies = [
     "cfgrib>=0.9.14.0",
     "eccodes>=1.7.1",
     "hydra-optuna-sweeper>=1.2.0",
+    "hydra-submitit-launcher>=1.2.0",
 ]
 requires-python = "==3.12.*"
 readme = "README.md"

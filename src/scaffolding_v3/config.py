@@ -216,7 +216,7 @@ defaults = [
     {"data": "real"},
     {"override hydra/sweeper": "optuna"},
     {"override hydra/sweeper/sampler": "grid"},
-    # {"override hydra/launcher": "joblib"},
+    # {"override hydra/launcher": "submitit_local"},
 ]
 
 lr_tuning_params = {

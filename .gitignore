@@ -1,6 +1,8 @@
 _output/
 _data/
 outputs/
+.submitit/
+.vscode/
 *.DS_Store
 
 # Byte-compiled / optimized / DLL files
