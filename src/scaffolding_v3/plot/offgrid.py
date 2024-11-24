@@ -41,7 +41,8 @@ def plot_offgrid(
     pred = model.predict(task, X_t=hires_grid)["t2m"]
     mean_ds, std_ds = pred["mean"], pred["std"]
 
-    proj = ccrs.TransverseMercator(central_longitude=10, approx=False)
+    # Using different projections leaks memory, see https://github.com/SciTools/cartopy/issues/2296
+    proj = ccrs.PlateCarree()
 
     fig, axs = plt.subplots(
         subplot_kw={"projection": proj},

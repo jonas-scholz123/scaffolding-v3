@@ -34,7 +34,7 @@ class Paths:
     value_stations: Path = data / "dwd" / "value_stations.parquet"
     data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
-    pretrained_model_path: Path = root / "_weights" / "era5" / "best_era5.pt"
+    weights: Path = root / "_weights"
 
 
 @dataclass
@@ -51,7 +51,7 @@ class ModelConfig:
 
 @dataclass
 class OptimizerConfig:
-    lr: float = 2.5e-3
+    lr: float = 1e-4
 
 
 @dataclass
@@ -73,9 +73,10 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 32
+    batch_size: int = 1
     shuffle: bool = True
-    num_workers: int = 0
+    num_workers: int = 32
+    multiprocessing_context: Optional[str] = "spawn"
 
 
 @dataclass
@@ -144,7 +145,7 @@ class TaskLoaderConfig:
 
 @dataclass
 class Era5TaskLoaderConfig(TaskLoaderConfig):
-    discrete_xarray_sampling: bool = False
+    discrete_xarray_sampling: bool = True
 
 
 @dataclass
@@ -196,7 +197,7 @@ class ExecutionConfig:
     epochs: int = 300
     seed: int = 42
     start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
-    use_pretrained: bool = False
+    start_weights: Optional[str] = None
 
 
 @dataclass
@@ -204,6 +205,7 @@ class OutputConfig:
     save_checkpoints: bool = True
     out_dir: Path = root / "_output"
     use_wandb: bool = False
+    use_tqdm: bool = False
     log_level: str = "INFO"
     plot: bool = True
     plot_time: str = "2023-06-01 00:00:00"
@@ -211,8 +213,10 @@ class OutputConfig:
 
 defaults = [
     "_self_",
-    {"data": "sim"},
+    {"data": "real"},
     {"override hydra/sweeper": "optuna"},
+    {"override hydra/sweeper/sampler": "grid"},
+    # {"override hydra/launcher": "joblib"},
 ]
 
 lr_tuning_params = {
@@ -231,9 +235,14 @@ hydra_config = {
     "run": {"dir": "."},
     "sweep": {"dir": "."},
     "sweeper": {
-        "n_jobs": 1,  # Only 1 process
-        "params": lr_tuning_params,
+        "n_jobs": 1,
+        "params": varying_stations_params,
     },
+    # "launcher": {
+    #    "timeout_min": 600,
+    #    "mem_gb": 12,
+    #    "gpus_per_node": 1,
+    # },
     "mode": "RUN",  # Workaround for https://github.com/facebookresearch/hydra/issues/2262
 }
 
@@ -265,9 +274,14 @@ def load_config() -> None:
     cs.store(
         name="prod-finetune",
         node=Config(
-            execution=ExecutionConfig(epochs=40, use_pretrained=True, dry_run=False),
+            execution=ExecutionConfig(
+                epochs=40, start_weights="best_era5.pt", dry_run=False
+            ),
+            output=OutputConfig(use_wandb=True),
             # Slightly smaller learning rate for fine-tuning
             optimizer=AdamConfig(lr=1e-4),
+            # Batch size 1 for fine-tuning
+            data=DwdDataConfig(trainloader=TrainLoaderConfig(batch_size=1)),
         ),
     )
     cs.store(

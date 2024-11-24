@@ -62,7 +62,9 @@ def plot_era5_prediction_and_errors(
     data_processor: DataProcessor,
     task: Task,
 ) -> Figure:
-    proj = ccrs.TransverseMercator(central_longitude=10, approx=False)
+
+    # Using different projections leaks memory, see https://github.com/SciTools/cartopy/issues/2296
+    proj = ccrs.PlateCarree()
     subplots = plt.subplots(
         subplot_kw={"projection": proj}, nrows=1, ncols=4, figsize=(10, 2.5)
     )

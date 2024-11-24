@@ -60,6 +60,9 @@ def main(cfg: Config) -> float:
         logger.exception("An error occurred during training: {}", e)
         raise e
 
+def collate_fn(x):
+    return x
+
 
 def _configure_outputs(cfg: Config):
     load_dotenv()
@@ -69,6 +72,8 @@ def _configure_outputs(cfg: Config):
     warnings.filterwarnings(
         "ignore", category=DeprecationWarning, module="google.protobuf"
     )
+    # Deepsensor issues raising this warning
+    warnings.filterwarnings("ignore", category=FutureWarning, module="pandas")
     warnings.filterwarnings("ignore", category=DeprecationWarning, module="deepsensor")
     warnings.filterwarnings("ignore", category=DeprecationWarning, module="lab")
     warnings.filterwarnings("ignore", category=MovedIn20Warning)
@@ -129,28 +134,14 @@ class Trainer:
             best_val_loss=np.inf,
         )
 
-        if self.cfg.execution.use_pretrained:
-            pretrained_model_path = self.cfg.paths.pretrained_model_path
-            try:
-                checkpoint = CheckpointManager.load_checkpoint_from_path(
-                    pretrained_model_path
-                )
-                self.model.model.load_state_dict(checkpoint.model_state)
-                logger.info(
-                    "Pretrained model loaded from path {}, starting from pretrained.",
-                    pretrained_model_path,
-                )
-            except FileNotFoundError:
-                logger.warning(
-                    "Pretrained model path {} does not exist, starting from scratch.",
-                    pretrained_model_path,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Error loading pretrained model from path {}, starting from scratch: {}",
-                    pretrained_model_path,
-                    e,
-                )
+        weights_name = self.cfg.execution.start_weights
+        if weights_name:
+            weights_path = self.cfg.paths.weights / weights_name
+            CheckpointManager.reproduce_model_from_path(self.model.model, weights_path)
+            logger.info(
+                "Pretrained model loaded from path {}, starting from pretrained.",
+                weights_path,
+            )
 
         if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
             self.checkpoint_manager.reproduce(
@@ -205,13 +196,13 @@ class Trainer:
             cfg.data.trainloader,
             trainset,
             generator=generator,
-            collate_fn=lambda x: x,
+            collate_fn=collate_fn,
         )
         val_loader: DataLoader = hydra.utils.instantiate(
             cfg.data.testloader,
             valset,
             generator=generator,
-            collate_fn=lambda x: x,
+            collate_fn=collate_fn,
         )
 
         model = hydra.utils.instantiate(cfg.model, data_processor, trainset.task_loader)
@@ -294,7 +285,10 @@ class Trainer:
         train_loss = 0.0
 
         self.model.model.train()
-        for batch in tqdm(self.train_loader):
+        iterator = (
+            tqdm(self.train_loader) if self.cfg.output.use_tqdm else self.train_loader
+        )
+        for batch in iterator:
             if self.cfg.execution.dry_run:
                 batch = batch[:1]
 
@@ -327,7 +321,12 @@ class Trainer:
             )
 
     def val_step(self) -> dict[str, float]:
-        return evaluate(self.model, self.val_loader, self.cfg.execution.dry_run)
+        return evaluate(
+            self.model,
+            self.val_loader,
+            self.cfg.execution.dry_run,
+            self.cfg.output.use_tqdm,
+        )
 
 
 if __name__ == "__main__":

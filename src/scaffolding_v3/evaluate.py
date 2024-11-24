@@ -43,6 +43,7 @@ def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
     paths = get_experiment_paths(Paths.output, dry_run_filter)
     df = make_eval_df(paths, load_eval_df(_extract_data_provider_name(eval_cfg)))
     logger.info("Evaluate unevaluated experiments")
+
     df = evaluate_remaining(df, eval_cfg)
     return df
 
@@ -140,11 +141,12 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
     return df
 
 
-def evaluate(model: ConvNP, eval_data: Iterable, dry_run: bool) -> dict[str, float]:
+def evaluate(model: ConvNP, eval_data: Iterable, dry_run: bool, use_tqdm: bool = True) -> dict[str, float]:
     model.model.eval()
     batch_losses = []
+    iterator = tqdm(eval_data) if use_tqdm else eval_data
     with torch.no_grad():
-        for batch in tqdm(eval_data):
+        for batch in iterator:
             if dry_run:
                 batch = batch[:1]
 
