@@ -60,6 +60,7 @@ def main(cfg: Config) -> float:
         logger.exception("An error occurred during training: {}", e)
         raise e
 
+
 def collate_fn(x):
     return x
 
@@ -77,6 +78,9 @@ def _configure_outputs(cfg: Config):
     warnings.filterwarnings("ignore", category=DeprecationWarning, module="deepsensor")
     warnings.filterwarnings("ignore", category=DeprecationWarning, module="lab")
     warnings.filterwarnings("ignore", category=MovedIn20Warning)
+    warnings.filterwarnings(
+        "ignore", category=FutureWarning, message=".*ChainedAssignmentError.*"
+    )
 
     if cfg.output.use_wandb:
         wandb.init(

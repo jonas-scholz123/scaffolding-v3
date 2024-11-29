@@ -75,8 +75,8 @@ class DataloaderConfig:
 class TrainLoaderConfig(DataloaderConfig):
     batch_size: int = 1
     shuffle: bool = True
-    num_workers: int = 32
-    multiprocessing_context: Optional[str] = "spawn"
+    num_workers: int = 0
+    multiprocessing_context: Optional[str] = None
 
 
 @dataclass
@@ -214,43 +214,16 @@ class OutputConfig:
 defaults = [
     "_self_",
     {"data": "real"},
+    {"mode": "dev"},
+    {"runner": "default"},
     {"override hydra/sweeper": "optuna"},
-    {"override hydra/sweeper/sampler": "grid"},
-    # {"override hydra/launcher": "submitit_local"},
 ]
-
-lr_tuning_params = {
-    # Limit dataset size/training length for faster sweepsa
-    "execution.epochs": 10,
-    "data.data_provider.num_times": 10000,
-    # Find good learning rate
-    "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
-}
-
-varying_stations_params = {"data.data_provider.num_stations": "20,100,500"}
-
-hydra_config = {
-    # Disables hydra folder-based logging (covered by wandb)
-    "output_subdir": None,
-    "run": {"dir": "."},
-    "sweep": {"dir": "."},
-    "sweeper": {
-        "n_jobs": 1,
-        "params": varying_stations_params,
-    },
-    # "launcher": {
-    #    "timeout_min": 600,
-    #    "mem_gb": 12,
-    #    "gpus_per_node": 1,
-    # },
-    "mode": "RUN",  # Workaround for https://github.com/facebookresearch/hydra/issues/2262
-}
 
 
 @dataclass
 class Config:
     defaults: list = field(default_factory=lambda: defaults)
-    hydra: dict = field(default_factory=lambda: hydra_config)
+    hydra: dict = field(default_factory=dict)
     data: DataConfig = MISSING
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=AdamConfig)
@@ -265,29 +238,135 @@ def load_config() -> None:
     from hydra.core.config_store import ConfigStore
 
     cs = ConfigStore.instance()
+
     cs.store(group="data", name="sim", node=Era5DataConfig)
     cs.store(group="data", name="real", node=DwdDataConfig)
+
     cs.store(
-        name="dev",
-        node=Config(),
+        group="runner",
+        name="default",
+        package="_global_",
+        node={
+            "hydra": {
+                "mode": "RUN",  # Workaround for https://github.com/facebookresearch/hydra/issues/2262
+                "sweeper": {"n_jobs": 1},
+            },
+            "output": {"use_tqdm": True},
+            "data": {
+                "trainloader": {"num_workers": 8, "multiprocessing_context": "spawn"}
+            },
+        },
     )
+
     cs.store(
-        name="prod-finetune",
+        group="runner",
+        name="parallel",
+        package="_global_",
+        node={
+            "defaults": [
+                {"override /hydra/launcher": "submitit_local"},
+            ],
+            "hydra": {
+                "launcher": {
+                    "timeout_min": 600,
+                    "mem_gb": 8,
+                    "gpus_per_node": 1,
+                },
+                "sweeper": {
+                    # Close to ideal on my local PC with 4090.
+                    "n_jobs": 5,
+                },
+                "mode": "MULTIRUN",
+            },
+            # Workers spawned by the dataloader don't get along with submitit/joblib
+            "data": {
+                "trainloader": {"num_workers": 0, "multiprocessing_context": None}
+            },
+            # Submitit logs to files, tqdm spams those files.
+            "output": {"use_tqdm": False},
+        },
+    )
+
+    # Can't use structured configs here, might need more investigation?
+    cs.store(
+        group="mode",
+        name="dev",
+        package="_global_",
+        node={
+            "data": {
+                "data_provider": {
+                    "train_range": ["2016-01-01", "2016-02-01"],
+                }
+            }
+        },
+    )
+
+    cs.store(
+        group="mode",
+        name="prod",
+        package="_global_",
+        node={
+            "execution": {
+                "dry_run": False,
+            },
+            "output": {
+                "use_wandb": True,
+            },
+        },
+    )
+
+    cs.store(
+        name="pretrain",
         node=Config(
-            execution=ExecutionConfig(
-                epochs=40, start_weights="best_era5.pt", dry_run=False
-            ),
-            output=OutputConfig(use_wandb=True),
+            defaults=defaults + [{"override /data": "sim"}],
+        ),
+    )
+
+    hyperparameter_opt_params = {
+        # Limit dataset size/training length for faster sweepsa
+        "execution.epochs": 10,
+        "data.data_provider.num_times": 10000,
+        # Find good learning rate
+        "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
+    }
+    cs.store(
+        name="hyperparam_opt",
+        node=Config(
+            defaults=defaults
+            + [
+                {"override /hydra/sweeper": "optuna"},
+                {"override /hydra/sweeper/sampler": "tpe"},
+            ],
+            hydra={
+                "sweeper": {
+                    "params": hyperparameter_opt_params,
+                },
+            },
+        ),
+    )
+
+    finetune_params = {
+        "data.data_provider.num_stations": "20,100,500",
+        # "data.data_provider.num_times": "400,2000,10000",
+        "execution.seed": "42,43",
+    }
+    cs.store(
+        name="finetune",
+        node=Config(
+            defaults=defaults
+            + [
+                {"override /hydra/sweeper/sampler": "grid"},
+                {"override /data": "real"},
+            ],
+            hydra={
+                "sweeper": {
+                    "params": finetune_params,
+                }
+            },
+            execution=ExecutionConfig(epochs=40, start_weights="best_era5.pt"),
             # Slightly smaller learning rate for fine-tuning
             optimizer=AdamConfig(lr=1e-4),
             # Batch size 1 for fine-tuning
             data=DwdDataConfig(trainloader=TrainLoaderConfig(batch_size=1)),
-        ),
-    )
-    cs.store(
-        name="prod",
-        node=Config(
-            execution=ExecutionConfig(dry_run=False),
-            output=OutputConfig(use_wandb=True),
         ),
     )

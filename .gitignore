@@ -2,6 +2,7 @@ _output/
 _data/
 outputs/
 .submitit/
+multirun/
 .vscode/
 *.DS_Store
 
