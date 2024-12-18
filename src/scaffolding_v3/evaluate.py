@@ -4,7 +4,6 @@ from pathlib import Path
 import hydra
 import pandas as pd
 import torch
-from data.data import make_dataset
 from hydra.utils import instantiate
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
@@ -16,6 +15,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from scaffolding_v3.config import SKIP_KEYS, Config, Paths, load_config
+from scaffolding_v3.data.data import make_dataset
 
 logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 

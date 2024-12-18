@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from data.data import make_dataset
 from dotenv import load_dotenv
 from hydra.utils import instantiate
 from loguru import logger
@@ -28,6 +27,7 @@ from scaffolding_v3.config import (
     Config,
     load_config,
 )
+from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
 

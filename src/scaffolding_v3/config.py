@@ -142,7 +142,7 @@ class ExecutionConfig:
     device: str = "cuda"
     compile: bool = True
     dry_run: bool = True
-    epochs: int = 100
+    epochs: int = 15
     seed: int = 42
     start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
     start_weights: Optional[str] = None
