@@ -13,27 +13,16 @@ dependencies = [
     "wandb>=0.17.5",
     "python-dotenv>=1.0.1",
     "pandas>=2.2.2",
-    "geopandas>=1.0.1",
     "pyarrow>=17.0.0",
     "requests>=2.32.3",
     "beautifulsoup4>=4.12.3",
-    "deepsensor>=0.3.8",
-    "xarray>=2024.7.0",
-    "rioxarray>=0.17.0",
-    "cartopy>=0.23.0",
     "ipykernel>=6.29.5",
-    "black>=24.8.0",
-    "cdsapi>=0.7.2",
-    "cfgrib>=0.9.14.0",
-    "eccodes>=1.7.1",
     "hydra-optuna-sweeper>=1.2.0",
     "hydra-submitit-launcher>=1.2.0",
 ]
-requires-python = "==3.12.*"
+requires-python = "==3.11.*"
 readme = "README.md"
 license = { text = "MIT" }
 
 [tool.pdm.dev-dependencies]
-dev = [
-    "-e file:///${PROJECT_ROOT}/../mlbnb#egg=mlbnb",
-]
+dev = ["-e file:///${PROJECT_ROOT}/../mlbnb#egg=mlbnb"]

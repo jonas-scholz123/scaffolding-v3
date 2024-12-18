@@ -1,7 +1,6 @@
 import warnings
 from typing import Optional
 
-import deepsensor.torch  # noqa
 import hydra
 import numpy as np
 import torch
@@ -190,6 +189,8 @@ class Trainer:
             num_classes=num_classes,
             sidelength=sidelength,
         ).to(cfg.execution.device)
+        if cfg.execution.compile:
+            model.compile()
         loss_fn: nn.Module = instantiate(cfg.loss).to(cfg.execution.device)
 
         optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
