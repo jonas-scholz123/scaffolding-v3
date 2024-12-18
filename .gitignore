@@ -4,6 +4,7 @@ outputs/
 .submitit/
 multirun/
 .vscode/
+.zed/
 *.DS_Store
 
 # Byte-compiled / optimized / DLL files

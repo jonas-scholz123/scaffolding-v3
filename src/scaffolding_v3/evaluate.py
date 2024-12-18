@@ -1,27 +1,21 @@
 import sys
 from pathlib import Path
-from typing import Iterable
 
-import deepsensor.torch  # noqa
 import hydra
-import numpy as np
 import pandas as pd
 import torch
-from deepsensor import Task
-from deepsensor.model.convnp import ConvNP
-from deepsensor.train.train import set_gpu_default_device
+from data.data import make_dataset
 from hydra.utils import instantiate
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.paths import ExperimentPath, get_experiment_paths
 from mlbnb.types import Split
 from omegaconf import OmegaConf
+from torch import nn
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from scaffolding_v3.config import SKIP_KEYS, Config, Paths, load_config
-from scaffolding_v3.data.dataset import make_dataset
-from scaffolding_v3.data.dwd import get_data_processor
 
 logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 
@@ -63,7 +57,7 @@ def _get_csv_fpath(data_provider_name: str) -> Path:
 
 
 def _extract_data_provider_name(cfg: Config) -> str:
-    return cfg.data.data_provider._target_.split(".")[-1]  # type: ignore
+    return cfg.data.dataset._target_.split(".")[-1]  # type: ignore
 
 
 def make_eval_df(
@@ -99,17 +93,10 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
         logger.info("All experiments have been evaluated")
         return df
 
-    if eval_cfg.execution.device == "cuda":
-        set_gpu_default_device()
-
     generator = torch.Generator(device=eval_cfg.execution.device).manual_seed(
         eval_cfg.execution.seed
     )
-    data_processor = get_data_processor(eval_cfg.paths)
-    data_provider = instantiate(eval_cfg.data.data_provider)
-    testset = make_dataset(
-        eval_cfg.data, eval_cfg.paths, data_provider, Split.TEST, data_processor
-    )
+    testset = make_dataset(eval_cfg.data, Split.TEST, generator)
 
     test_loader: DataLoader = instantiate(
         eval_cfg.data.testloader,
@@ -118,20 +105,16 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
         collate_fn=lambda x: x,
     )
 
-    # Load all data into memory
-    eval_data = list(test_loader)
-
     for path_str in tqdm(df[~df["evaluated"]].index):
         logger.info(f"Evaluating {path_str}")
         path = ExperimentPath(path_str)  # type: ignore
         experiment_cfg: Config = path.get_config()  # type: ignore
         checkpoint_manager = CheckpointManager(path)
-        model: ConvNP = instantiate(
-            experiment_cfg.model, data_processor, testset.task_loader
-        )
-        checkpoint_manager.reproduce_model(model.model, "best")
+        model: nn.Module = instantiate(experiment_cfg.model)
+        loss_fn: nn.Module = instantiate(experiment_cfg.loss)
+        checkpoint_manager.reproduce_model(model, "best")
 
-        test_metrics = evaluate(model, eval_data, False)
+        test_metrics = evaluate(model, loss_fn, test_loader, False)
 
         for metric_name, metric in test_metrics.items():
             df.loc[path_str, f"test_{metric_name}"] = metric
@@ -141,32 +124,34 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
     return df
 
 
-def evaluate(model: ConvNP, eval_data: Iterable, dry_run: bool, use_tqdm: bool = True) -> dict[str, float]:
-    model.model.eval()
-    batch_losses = []
-    iterator = tqdm(eval_data) if use_tqdm else eval_data
-    with torch.no_grad():
-        for batch in iterator:
-            if dry_run:
-                batch = batch[:1]
+def evaluate(
+    model: nn.Module,
+    loss_fn: nn.Module,
+    val_loader: DataLoader,
+    dry_run: bool = False,
+    use_tqdm: bool = True,
+) -> dict[str, float]:
+    model.eval()
+    val_loss = 0
+    correct = 0
+    device = next(model.parameters()).device
 
-            batch_losses.append(eval_on_batch(model, batch))
+    with torch.no_grad():
+        for data, target in val_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            val_loss += loss_fn(output, target).item()
+            pred = output.argmax(
+                dim=1, keepdim=True
+            )  # get the index of the max log-probability
+            correct += pred.eq(target.view_as(pred)).sum().item()
 
             if dry_run:
                 break
 
-    val_loss = float(np.mean(batch_losses))
-    return {"val_loss": val_loss}
-
-
-def eval_on_batch(model: ConvNP, batch: list[Task]) -> float:
-    with torch.no_grad():
-        task_losses = []
-        for task in batch:
-            task_losses.append(model.loss_fn(task, normalise=True))
-        mean_batch_loss = torch.mean(torch.stack(task_losses))
-
-    return float(mean_batch_loss.detach().cpu().numpy())
+    val_len = len(val_loader.dataset)  # type: ignore
+    val_loss /= val_len
+    return {"val_loss": val_loss, "val_accuracy": correct / val_len}
 
 
 def config_to_df(config: Config) -> pd.DataFrame:
@@ -209,14 +194,9 @@ def save_df(df: pd.DataFrame, data_name: str) -> None:
     df.to_csv(path, index=False)
 
 
-def era5_filter(cfg: Config) -> bool:
-    return cfg.data.data_provider._target_.split(".")[-1] == "DwdDataProvider"  # type: ignore
-
-
 def drop_boring_cols(df: pd.DataFrame):
     """Drop columns that are the same for all experiments"""
     droppable = [col for col in df.columns if len(df[col].unique()) == 1]
-    droppable += ["data.data_provider.train_range", "data.data_provider.test_range"]
     logger.warning(f"Dropping columns {droppable}")
     df = df.drop(columns=droppable)
     return df

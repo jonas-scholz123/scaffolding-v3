@@ -9,17 +9,14 @@ from omegaconf.omegaconf import MISSING
 SKIP_KEYS = {
     "output",
     "start_from",
-    "download",
     "_partial_",
     "root",
     "testloader",
     "paths",
     "epochs",
-    "geo",
 }
 
 root = Path(__file__).resolve().parent.parent.parent
-ppu = 150
 
 
 @dataclass
@@ -27,41 +24,36 @@ class Paths:
     root: Path = root
     data: Path = root / "_data"
     raw_data: Path = data / "_raw"
-    elevation: Path = data / "elevation" / "elevation.nc"
-    dwd: Path = data / "dwd" / "dwd.parquet"
-    dwd_meta: Path = data / "dwd" / "dwd_meta.parquet"
-    era5: Path = data / "era5" / "era5_t2m.nc"
-    value_stations: Path = data / "dwd" / "value_stations.parquet"
-    data_processor_dir: Path = data / "dwd"
     output: Path = root / "_output"
     weights: Path = root / "_weights"
 
 
 @dataclass
 class ModelConfig:
-    _target_: str = "deepsensor.model.ConvNP"
-    internal_density: int = ppu
-    unet_channels: tuple = (64,) * 4  # type: ignore
-    aux_t_mlp_layers: tuple = (64,) * 3  # type: ignore
-    likelihood: str = "cnp"
-    encoder_scales: float = 0.5 / ppu
-    decoder_scale: float = 0.5 / ppu
-    verbose: bool = False
+    _target_: str = "scaffolding_v3.model.convnet.ConvNet"
+    conv_channels: tuple[int, ...] = (32, 64)
+    linear_channels: tuple[int, ...] = (128,)
+    use_dropout: bool = True
+
+
+@dataclass
+class LossConfig:
+    _target_: str = "torch.nn.NLLLoss"
 
 
 @dataclass
 class OptimizerConfig:
-    lr: float = 1e-4
-
-
-@dataclass
-class AdadeltaConfig(OptimizerConfig):
-    _target_: str = "torch.optim.Adadelta"
+    lr: float = 0.1
 
 
 @dataclass
 class AdamConfig(OptimizerConfig):
     _target_: str = "torch.optim.Adam"
+
+
+@dataclass
+class AdadeltaConfig(OptimizerConfig):
+    _target_: str = "torch.optim.Adadelta"
 
 
 @dataclass
@@ -73,7 +65,7 @@ class DataloaderConfig:
 
 @dataclass
 class TrainLoaderConfig(DataloaderConfig):
-    batch_size: int = 1
+    batch_size: int = 64
     shuffle: bool = True
     num_workers: int = 0
     multiprocessing_context: Optional[str] = None
@@ -86,91 +78,46 @@ class TestLoaderConfig(DataloaderConfig):
 
 
 @dataclass
-class DataProviderConfig:
+class DatasetConfig:
     paths: Paths = field(default_factory=Paths)
     val_fraction: float = 0.1
-    train_range: tuple[str, str] = ("2006-01-01", "2023-01-01")
-    test_range: tuple[str, str] = ("2023-01-01", "2024-01-01")
-    num_times: int = 10000
 
 
 @dataclass
-class DwdDataProviderConfig(DataProviderConfig):
-    _target_: str = "scaffolding_v3.data.dwd.DwdDataProvider"
-    num_stations: int = 500
-    daily_averaged: bool = False
+class MnistDatasetConfig(DatasetConfig):
+    _target_: str = "scaffolding_v3.data.mnist.MnistDataset"
 
 
 @dataclass
-class Era5DataProviderConfig(DataProviderConfig):
-    _target_: str = "scaffolding_v3.data.era5.Era5DataProvider"
-    train_range: tuple[str, str] = ("2006-01-01", "2011-01-01")
-    test_range: tuple[str, str] = ("2011-01-01", "2012-01-01")
-    num_times: int = 10000
-
-
-@dataclass
-class DwdConfig:
-    dwd_url = "https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/air_temperature/historical/"
-    value_url = "https://www.value-cost.eu/sites/default/files/VALUE_ECA_53_Germany_spatial_v1.zip"
-    crs_str = "EPSG:4326"
-
-
-@dataclass
-class SrtmConfig:
-    srtm_url = "https://www.opendem.info/downloads/srtm_germany_dtm.zip"
-
-
-@dataclass
-class Era5Config:
-    era5_url = "https://cds.climate.copernicus.eu/api/v2"
-
-
-# Germany bounding box
-@dataclass
-class GeoConfig:
-    min_lat: float = 47.2
-    max_lat: float = 54.95
-    min_lon: float = 5.8
-    max_lon: float = 15.05
-    crs_str: str = "EPSG:4326"
-
-
-@dataclass
-class TaskLoaderConfig:
-    _target_: str = "deepsensor.data.loader.TaskLoader"
-    _partial_: bool = True
-    discrete_xarray_sampling: bool = True
-
-
-@dataclass
-class Era5TaskLoaderConfig(TaskLoaderConfig):
-    discrete_xarray_sampling: bool = True
+class Cifar10DatasetConfig(DatasetConfig):
+    _target_: str = "scaffolding_v3.data.cifar10.Cifar10Dataset"
 
 
 @dataclass
 class DataConfig:
-    data_provider: DataProviderConfig = MISSING
-    task_loader: TaskLoaderConfig = field(default_factory=TaskLoaderConfig)
+    dataset: DatasetConfig = MISSING
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
-    include_aux_at_targets: bool = True
-    include_context_in_target: bool = True
-    ppu: int = ppu
-    hires_ppu: int = 2000
     cache: bool = False
+    in_channels: int = 1
+    num_classes: int = 10
+    sidelength: int = 28
 
 
 @dataclass
-class Era5DataConfig(DataConfig):
-    data_provider: DataProviderConfig = field(default_factory=Era5DataProviderConfig)
-    task_loader: TaskLoaderConfig = field(default_factory=Era5TaskLoaderConfig)
-    include_context_in_target: bool = True
+class MnistDataConfig(DataConfig):
+    dataset: DatasetConfig = field(default_factory=MnistDatasetConfig)
+    in_channels: int = 1
+    num_classes: int = 10
+    sidelength: int = 28
 
 
 @dataclass
-class DwdDataConfig(DataConfig):
-    data_provider: DataProviderConfig = field(default_factory=DwdDataProviderConfig)
+class Cifar10DataConfig(DataConfig):
+    dataset: DatasetConfig = field(default_factory=Cifar10DatasetConfig)
+    in_channels: int = 3
+    num_classes: int = 10
+    sidelength: int = 32
 
 
 @dataclass
@@ -194,7 +141,7 @@ class CheckpointOccasion(Enum):
 class ExecutionConfig:
     device: str = "cuda"
     dry_run: bool = True
-    epochs: int = 300
+    epochs: int = 100
     seed: int = 42
     start_from: Optional[CheckpointOccasion] = CheckpointOccasion.LATEST
     start_weights: Optional[str] = None
@@ -208,12 +155,12 @@ class OutputConfig:
     use_tqdm: bool = False
     log_level: str = "INFO"
     plot: bool = True
-    plot_time: str = "2023-06-01 00:00:00"
+    sample_indices: tuple[int, ...] = (0, 1, 2, 3)
 
 
 defaults = [
     "_self_",
-    {"data": "real"},
+    {"data": "mnist"},
     {"mode": "dev"},
     {"runner": "default"},
     {"override hydra/sweeper": "optuna"},
@@ -226,10 +173,10 @@ class Config:
     hydra: dict = field(default_factory=dict)
     data: DataConfig = MISSING
     model: ModelConfig = field(default_factory=ModelConfig)
-    optimizer: OptimizerConfig = field(default_factory=AdamConfig)
+    loss: LossConfig = field(default_factory=LossConfig)
+    optimizer: OptimizerConfig = field(default_factory=AdadeltaConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
-    geo: GeoConfig = field(default_factory=GeoConfig)
     paths: Paths = field(default_factory=Paths)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
@@ -239,8 +186,8 @@ def load_config() -> None:
 
     cs = ConfigStore.instance()
 
-    cs.store(group="data", name="sim", node=Era5DataConfig)
-    cs.store(group="data", name="real", node=DwdDataConfig)
+    cs.store(group="data", name="mnist", node=MnistDataConfig)
+    cs.store(group="data", name="cifar10", node=Cifar10DataConfig)
 
     cs.store(
         group="runner",
@@ -253,7 +200,7 @@ def load_config() -> None:
             },
             "output": {"use_tqdm": True},
             "data": {
-                "trainloader": {"num_workers": 8, "multiprocessing_context": "spawn"}
+                "trainloader": {"num_workers": 0, "multiprocessing_context": None}
             },
         },
     )
@@ -292,13 +239,7 @@ def load_config() -> None:
         group="mode",
         name="dev",
         package="_global_",
-        node={
-            "data": {
-                "data_provider": {
-                    "train_range": ["2016-01-01", "2016-02-01"],
-                }
-            }
-        },
+        node={},
     )
 
     cs.store(
@@ -315,17 +256,9 @@ def load_config() -> None:
         },
     )
 
-    cs.store(
-        name="pretrain",
-        node=Config(
-            defaults=defaults + [{"override /data": "sim"}],
-        ),
-    )
-
     hyperparameter_opt_params = {
-        # Limit dataset size/training length for faster sweepsa
+        # Limit dataset size/training length for faster sweeps
         "execution.epochs": 10,
-        "data.data_provider.num_times": 10000,
         # Find good learning rate
         "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
     }
@@ -345,28 +278,22 @@ def load_config() -> None:
         ),
     )
 
-    finetune_params = {
-        "data.data_provider.num_stations": "20,100,500",
-        # "data.data_provider.num_times": "400,2000,10000",
-        "execution.seed": "42,43",
+    sweep_params = {
+        "execution.seed": "42,43,44",
     }
     cs.store(
-        name="finetune",
+        name="sweep",
         node=Config(
             defaults=defaults
             + [
                 {"override /hydra/sweeper/sampler": "grid"},
-                {"override /data": "real"},
             ],
             hydra={
                 "sweeper": {
-                    "params": finetune_params,
+                    "params": sweep_params,
                 }
             },
-            execution=ExecutionConfig(epochs=40, start_weights="best_era5.pt"),
-            # Slightly smaller learning rate for fine-tuning
-            optimizer=AdamConfig(lr=1e-4),
-            # Batch size 1 for fine-tuning
-            data=DwdDataConfig(trainloader=TrainLoaderConfig(batch_size=1)),
         ),
     )
+
+    cs.store(name="train", node=Config())

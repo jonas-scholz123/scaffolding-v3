@@ -1,4 +1,3 @@
-import sys
 import warnings
 from typing import Optional
 
@@ -8,9 +7,9 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from deepsensor.model.convnp import ConvNP
-from deepsensor.train.train import set_gpu_default_device
+from data.data import make_dataset
 from dotenv import load_dotenv
+from hydra.utils import instantiate
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.metric_logger import MetricLogger
@@ -18,7 +17,7 @@ from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
 from mlbnb.types import Split
 from omegaconf import OmegaConf
-from sqlalchemy.exc import MovedIn20Warning
+from torch import nn
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
@@ -30,16 +29,13 @@ from scaffolding_v3.config import (
     Config,
     load_config,
 )
-from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
-from scaffolding_v3.data.dataset import make_dataset
-from scaffolding_v3.data.dwd import get_data_processor
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
 
 load_config()
 
 
-@hydra.main(version_base=None, config_name="dev", config_path="")
+@hydra.main(version_base=None, config_name="train", config_path="")
 def main(cfg: Config) -> float:
     try:
         _configure_outputs(cfg)
@@ -47,7 +43,7 @@ def main(cfg: Config) -> float:
         logger.debug(OmegaConf.to_yaml(cfg))
 
         if cfg.execution.device == "cuda":
-            set_gpu_default_device()
+            torch.set_default_device("cuda")
 
         seed_everything(cfg.execution.seed)
 
@@ -61,25 +57,12 @@ def main(cfg: Config) -> float:
         raise e
 
 
-def collate_fn(x):
-    return x
-
-
 def _configure_outputs(cfg: Config):
     load_dotenv()
-    logger.configure(handlers=[{"sink": sys.stdout, "level": cfg.output.log_level}])
 
     # These are all due to deprecation warnings raised within dependencies.
     warnings.filterwarnings(
         "ignore", category=DeprecationWarning, module="google.protobuf"
-    )
-    # Deepsensor issues raising this warning
-    warnings.filterwarnings("ignore", category=FutureWarning, module="pandas")
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module="deepsensor")
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module="lab")
-    warnings.filterwarnings("ignore", category=MovedIn20Warning)
-    warnings.filterwarnings(
-        "ignore", category=FutureWarning, message=".*ChainedAssignmentError.*"
     )
 
     if cfg.output.use_wandb:
@@ -92,11 +75,11 @@ def _configure_outputs(cfg: Config):
 
 class Trainer:
     cfg: Config
-    model: ConvNP
+    model: torch.nn.Module
     optimizer: Optimizer
     train_loader: DataLoader
     val_loader: DataLoader
-    test_data: DeepSensorDataset
+    test_data: DataLoader
     generator: torch.Generator
     experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
@@ -107,7 +90,8 @@ class Trainer:
     def __init__(
         self,
         cfg: Config,
-        model: ConvNP,
+        model: nn.Module,
+        loss_fn: nn.Module,
         optimizer: Optimizer,
         train_loader: DataLoader,
         val_loader: DataLoader,
@@ -119,6 +103,7 @@ class Trainer:
     ):
         self.cfg = cfg
         self.model = model
+        self.loss_fn = loss_fn
         self.optimizer = optimizer
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -141,7 +126,7 @@ class Trainer:
         weights_name = self.cfg.execution.start_weights
         if weights_name:
             weights_path = self.cfg.paths.weights / weights_name
-            CheckpointManager.reproduce_model_from_path(self.model.model, weights_path)
+            CheckpointManager.reproduce_model_from_path(self.model, weights_path)
             logger.info(
                 "Pretrained model loaded from path {}, starting from pretrained.",
                 weights_path,
@@ -150,7 +135,7 @@ class Trainer:
         if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
             self.checkpoint_manager.reproduce(
                 start_from.value,
-                self.model.model,
+                self.model,
                 self.optimizer,
                 self.generator,
                 self.scheduler,
@@ -181,40 +166,36 @@ class Trainer:
         generator = torch.Generator(device=cfg.execution.device).manual_seed(
             cfg.execution.seed
         )
+        logger.warning(generator.device)
 
         logger.info("Instantiating dependencies")
 
-        data_processor = get_data_processor(cfg.paths)
+        trainset = make_dataset(cfg.data, Split.TRAIN, generator)
+        valset = make_dataset(cfg.data, Split.VAL, generator)
 
-        # Create the primary data source (ERA5/DWD)
-        data_provider: DataProvider = hydra.utils.instantiate(cfg.data.data_provider)
-
-        trainset = make_dataset(
-            cfg.data, cfg.paths, data_provider, Split.TRAIN, data_processor
+        train_loader: DataLoader = instantiate(
+            cfg.data.trainloader, trainset, generator=generator
         )
-        valset = make_dataset(
-            cfg.data, cfg.paths, data_provider, Split.VAL, data_processor
+        val_loader: DataLoader = instantiate(
+            cfg.data.testloader, valset, generator=generator
         )
 
-        train_loader: DataLoader = hydra.utils.instantiate(
-            cfg.data.trainloader,
-            trainset,
-            generator=generator,
-            collate_fn=collate_fn,
-        )
-        val_loader: DataLoader = hydra.utils.instantiate(
-            cfg.data.testloader,
-            valset,
-            generator=generator,
-            collate_fn=collate_fn,
-        )
+        in_channels = cfg.data.in_channels
+        num_classes = cfg.data.num_classes
+        sidelength = cfg.data.sidelength
 
-        model = hydra.utils.instantiate(cfg.model, data_processor, trainset.task_loader)
+        model: nn.Module = instantiate(
+            cfg.model,
+            in_channels=in_channels,
+            num_classes=num_classes,
+            sidelength=sidelength,
+        ).to(cfg.execution.device)
+        loss_fn: nn.Module = instantiate(cfg.loss).to(cfg.execution.device)
 
-        optimizer = hydra.utils.instantiate(cfg.optimizer, model.model.parameters())
+        optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
 
-        scheduler = (
-            hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
+        scheduler: Optional[LRScheduler] = (
+            instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
         )
 
         experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
@@ -222,10 +203,8 @@ class Trainer:
         logger.info("Experiment path: {}", str(experiment_path))
         checkpoint_manager = CheckpointManager(experiment_path)
 
-        test_data = data_provider.get_test_data()
-
         if cfg.output.plot:
-            plotter = Plotter(cfg, data_processor, test_data, experiment_path)
+            plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
         else:
             plotter = None
 
@@ -234,6 +213,7 @@ class Trainer:
         return Trainer(
             cfg,
             model,
+            loss_fn,
             optimizer,
             train_loader,
             val_loader,
@@ -253,8 +233,7 @@ class Trainer:
         metric_logger = MetricLogger(self.cfg.output.use_wandb)
 
         if self.plotter:
-            self.plotter.plot_task(self.train_loader.dataset[0])
-            self.plotter.plot_context_encoding(self.model, self.train_loader.dataset[0])
+            self.plotter.plot_prediction(self.model)
 
         while s.epoch <= self.cfg.execution.epochs + 1:
             logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
@@ -288,21 +267,20 @@ class Trainer:
     def train_step(self) -> dict[str, float]:
         train_loss = 0.0
 
-        self.model.model.train()
+        self.model.train()
         iterator = (
             tqdm(self.train_loader) if self.cfg.output.use_tqdm else self.train_loader
         )
-        for batch in iterator:
-            if self.cfg.execution.dry_run:
-                batch = batch[:1]
 
-            task_losses = []
+        for data, target in iterator:
             self.optimizer.zero_grad()
 
-            for task in batch:
-                task_losses.append(self.model.loss_fn(task, normalise=True))
+            data = data.to(self.cfg.execution.device)
+            target = target.to(self.cfg.execution.device)
 
-            batch_loss = torch.mean(torch.stack(task_losses))
+            output = self.model(data)
+            batch_loss = self.loss_fn(output, target)
+
             batch_loss.backward()
             self.optimizer.step()
 
@@ -317,7 +295,7 @@ class Trainer:
         if self.cfg.output.save_checkpoints:
             self.checkpoint_manager.save_checkpoint(
                 occasion.value,
-                self.model.model,
+                self.model,
                 self.optimizer,
                 self.generator,
                 self.scheduler,
@@ -327,6 +305,7 @@ class Trainer:
     def val_step(self) -> dict[str, float]:
         return evaluate(
             self.model,
+            self.loss_fn,
             self.val_loader,
             self.cfg.execution.dry_run,
             self.cfg.output.use_tqdm,
