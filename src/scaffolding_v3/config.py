@@ -261,7 +261,9 @@ def load_config() -> None:
         # Limit dataset size/training length for faster sweeps
         "execution.epochs": 10,
         # Find good learning rate
-        "optimizer.lr": "tag(log, interval(5e-5, 5e-2))",
+        "optimizer.lr": "tag(log, interval(0.05, 0.5))",
+        # Find ideal number of channels
+        "model.conv_channels": "[32, 64, 128], [32, 32, 32], [64, 64, 64], [32, 64]",
     }
     cs.store(
         name="hyperparam_opt",

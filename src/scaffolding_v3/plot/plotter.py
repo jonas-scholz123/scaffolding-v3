@@ -12,8 +12,9 @@ from mlbnb.types import Split
 from torch import default_generator
 from torch.utils.data import Dataset
 
-from scaffolding_v3.config import Config, Paths
 from scaffolding_v3.data.mnist import MnistDataset
+from scaffolding_v3.config import Config, Paths
+from scaffolding_v3.data.cifar10 import Cifar10Dataset
 
 
 class Plotter:
@@ -58,9 +59,15 @@ class Plotter:
             img, target = task
             img = img.to(self._cfg.execution.device)
             # Squeeze and/or unsqueeze to ensure image is C_W_H:
-            img = img.squeeze().unsqueeze(0)
+            if img.dim() == 2:
+                img = img.unsqueeze(0).unsqueeze(0)
+            elif img.dim() == 3:
+                img = img
             pred = model(img.unsqueeze(0)).argmax().item()
-            axs[0, i].imshow(img.squeeze().cpu().numpy(), cmap="gray")
+            # Normalize image to [0, 1]:
+            img = (img - img.min()) / (img.max() - img.min())
+            img = img.permute(1, 2, 0)
+            axs[0, i].imshow(img.squeeze().cpu().numpy(), cmap="grey")
             axs[0, i].set_title(f"True: {target}, Pred: {pred}")
             if target != pred:
                 axs[0, i].title.set_color("red")
@@ -75,12 +82,22 @@ class Plotter:
 
 if __name__ == "__main__":
     cfg = Config()
-    dataset = MnistDataset(Paths(), 0.1, Split.TRAIN, default_generator)
-    plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
+    data = "mnist"
 
-    in_channels = 1
-    num_classes = 10
-    sidelength = 28
+    if data == "cifar":
+        dataset = Cifar10Dataset(Paths(), 0.1, Split.TRAIN, default_generator)
+        plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
+
+        in_channels = 3
+        num_classes = 10
+        sidelength = 32
+    else:
+        dataset = MnistDataset(Paths(), 0.1, Split.TRAIN, default_generator)
+        plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
+
+        in_channels = 1
+        num_classes = 10
+        sidelength = 28
 
     model: nn.Module = instantiate(
         cfg.model,
@@ -88,6 +105,8 @@ if __name__ == "__main__":
         num_classes=num_classes,
         sidelength=sidelength,
     )
+
+    model = model.to("cuda")
 
     plotter.plot_prediction(model, 0)
     # plotter._sample_task[0].shape
