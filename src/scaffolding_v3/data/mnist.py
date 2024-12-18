@@ -1,41 +1,46 @@
-from pathlib import Path
-from mlbnb.dataprovider import DataProvider
-from torch.utils.data import Dataset, random_split
-from torchvision.datasets import MNIST
-from torchvision.transforms import Normalize, ToTensor, Compose
 import torch
+from mlbnb.types import Split
+from torch.utils.data import Dataset, random_split
+from torchvision import datasets, transforms
+
+from scaffolding_v3.config import Paths
 
 
-class MnistDataProvider(DataProvider):
-    def __init__(self, root: Path, normalization: Normalize, val_fraction: float):
-        self._root = root
-        self._transform = Compose([ToTensor(), normalization])
-        self._val_fraction = val_fraction
-        self._train_dataset, self._val_dataset = self._load_and_split_data()
-
-    def _load_and_split_data(self) -> tuple[Dataset, Dataset]:
-        full_dataset = MNIST(
-            root=self._root, train=True, download=True, transform=self._transform
+class MnistDataset(Dataset):
+    def __init__(
+        self,
+        paths: Paths,
+        val_fraction: float,
+        split: Split,
+        generator: torch.Generator,
+    ):
+        transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
         )
 
-        dataset_size = len(full_dataset)
-        val_size = int(dataset_size * self._val_fraction)
-        train_size = dataset_size - val_size
+        if split == Split.TEST:
+            self.dataset = datasets.MNIST(
+                root=paths.data,
+                train=False,
+                download=True,
+                transform=transform,
+            )
+        else:
+            dataset = datasets.MNIST(
+                root=paths.data,
+                train=True,
+                download=True,
+                transform=transform,
+            )
 
-        self._train_dataset, self._val_dataset = random_split(
-            full_dataset,
-            [1 - self._val_fraction, self._val_fraction],
-            generator=torch.default_generator,
-        )
-        return self._train_dataset, self._val_dataset
+            n_val = int(val_fraction * len(dataset))
+            train, val = random_split(
+                dataset, [len(dataset) - n_val, n_val], generator=generator
+            )
+            self.dataset = train if split == Split.TRAIN else val
 
-    def get_train_data(self) -> Dataset:
-        return self._train_dataset
+    def __len__(self):
+        return len(self.dataset)
 
-    def get_val_data(self) -> Dataset:
-        return self._val_dataset
-
-    def get_test_data(self) -> Dataset:
-        return MNIST(
-            root=self._root, train=False, download=True, transform=self._transform
-        )
+    def __getitem__(self, idx):
+        return self.dataset[idx]

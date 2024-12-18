@@ -1,210 +1,316 @@
+import warnings
 from typing import Optional
-import sys
-from loguru import logger
-from dotenv import load_dotenv
-import wandb
+
+import hydra
+import numpy as np
 import torch
-import torch.nn as nn
+import torch.optim.lr_scheduler
+import wandb
+from data.data import make_dataset
+from dotenv import load_dotenv
+from hydra.utils import instantiate
+from loguru import logger
+from mlbnb.checkpoint import CheckpointManager, TrainerState
+from mlbnb.metric_logger import MetricLogger
+from mlbnb.paths import ExperimentPath
+from mlbnb.rand import seed_everything
+from mlbnb.types import Split
+from omegaconf import OmegaConf
+from torch import nn
+from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import LRScheduler
-import hydra
-import torch.optim.lr_scheduler
-from omegaconf import OmegaConf
-from hydra.core.config_store import ConfigStore
+from tqdm import tqdm
 
-from mlbnb.checkpoint import CheckpointManager
-from mlbnb.paths import config_to_filepath
-from mlbnb.rand import seed_everything
-from mlbnb.metric_logger import MetricLogger
+from scaffolding_v3.config import (
+    SKIP_KEYS,
+    CheckpointOccasion,
+    Config,
+    load_config,
+)
+from scaffolding_v3.evaluate import evaluate
+from scaffolding_v3.plot.plotter import Plotter
 
-from config import Config, ExecutionConfig
-from scaffolding_v3.config import SKIP_KEYS, CheckpointOccasion
-
-
-cs = ConfigStore.instance()
-cs.store(name="config", node=Config)
+load_config()
 
 
-@hydra.main(version_base=None, config_name="config", config_path="../..")
-def main(cfg: Config):
-    _configure_outputs(cfg)
+@hydra.main(version_base=None, config_name="train", config_path="")
+def main(cfg: Config) -> float:
+    try:
+        _configure_outputs(cfg)
 
-    logger.info(OmegaConf.to_yaml(cfg))
+        logger.debug(OmegaConf.to_yaml(cfg))
 
-    seed_everything(cfg.execution.seed)
+        if cfg.execution.device == "cuda":
+            torch.set_default_device("cuda")
 
-    logger.info("Instantiating dependencies")
+        seed_everything(cfg.execution.seed)
 
-    data_provider = hydra.utils.instantiate(cfg.data.data_provider)
-    trainset = data_provider.get_train_data()
-    valset = data_provider.get_val_data()
-
-    train_loader = hydra.utils.instantiate(
-        cfg.data.trainloader, trainset, generator=torch.default_generator
-    )
-    val_loader = hydra.utils.instantiate(
-        cfg.data.testloader, valset, generator=torch.default_generator
-    )
-
-    model = hydra.utils.instantiate(cfg.model).to(cfg.execution.device)
-    loss_fn = hydra.utils.instantiate(cfg.loss)
-
-    optimizer = hydra.utils.instantiate(cfg.optimizer, model.parameters())
-
-    scheduler = (
-        hydra.utils.instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
-    )
-
-    path = config_to_filepath(cfg, cfg.output.out_dir, SKIP_KEYS)
-    logger.info("Experiment path: {}", path)
-
-    checkpoint_manager = CheckpointManager(path)
-
-    logger.info("Finished instantiating dependencies")
-
-    start_epoch = initial_setup(cfg, checkpoint_manager, model, optimizer, scheduler)
-
-    train_loop(
-        start_epoch,
-        cfg,
-        checkpoint_manager,
-        model,
-        loss_fn,
-        optimizer,
-        scheduler,
-        train_loader,
-        val_loader,
-    )
+        trainer = Trainer.from_config(cfg)
+        trainer.train_loop()
+        if cfg.output.use_wandb:
+            wandb.finish()
+        return trainer.state.best_val_loss
+    except Exception as e:
+        logger.exception("An error occurred during training: {}", e)
+        raise e
 
 
 def _configure_outputs(cfg: Config):
     load_dotenv()
-    logger.configure(handlers=[{"sink": sys.stdout, "level": cfg.output.log_level}])
+
+    # These are all due to deprecation warnings raised within dependencies.
+    warnings.filterwarnings(
+        "ignore", category=DeprecationWarning, module="google.protobuf"
+    )
 
     if cfg.output.use_wandb:
-        # Opt in to new wandb backend
-        wandb.require("core")
-        wandb.init(project="scaffolding_v3", config=dict(cfg), dir=cfg.output.out_dir)  # type: ignore
+        wandb.init(
+            project="scaffolding_v3",
+            config=OmegaConf.to_container(cfg),  # type: ignore
+            dir=cfg.output.out_dir,
+        )  # type: ignore
 
 
-def initial_setup(
-    cfg: Config,
-    checkpoint_manager: CheckpointManager,
-    model: nn.Module,
-    optimizer: Optimizer,
-    scheduler: Optional[LRScheduler],
-) -> int:
-    start_epoch = 1
-    start_from = cfg.execution.start_from
-    if start_from and checkpoint_manager.checkpoint_exists(start_from.value):
-        checkpoint = checkpoint_manager.reproduce(
-            start_from.value, model, optimizer, scheduler
+class Trainer:
+    cfg: Config
+    model: torch.nn.Module
+    optimizer: Optimizer
+    train_loader: DataLoader
+    val_loader: DataLoader
+    test_data: DataLoader
+    generator: torch.Generator
+    experiment_path: ExperimentPath
+    checkpoint_manager: CheckpointManager
+    scheduler: Optional[LRScheduler]
+    plotter: Optional[Plotter]
+    state: TrainerState
+
+    def __init__(
+        self,
+        cfg: Config,
+        model: nn.Module,
+        loss_fn: nn.Module,
+        optimizer: Optimizer,
+        train_loader: DataLoader,
+        val_loader: DataLoader,
+        generator: torch.Generator,
+        experiment_path: ExperimentPath,
+        checkpoint_manager: CheckpointManager,
+        scheduler: Optional[LRScheduler],
+        plotter: Optional[Plotter],
+    ):
+        self.cfg = cfg
+        self.model = model
+        self.loss_fn = loss_fn
+        self.optimizer = optimizer
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.generator = generator
+        self.experiment_path = experiment_path
+        self.checkpoint_manager = checkpoint_manager
+        self.scheduler = scheduler
+        self.plotter = plotter
+
+        self.state = self._load_initial_state()
+
+    def _load_initial_state(self) -> TrainerState:
+        start_from = self.cfg.execution.start_from
+
+        initial_state = TrainerState(
+            epoch=0,
+            best_val_loss=np.inf,
         )
 
-        # Checkpoint is at end of epoch, add 1 for next epoch.
-        start_epoch = checkpoint.epoch + 1
-        if start_epoch < cfg.execution.epochs:
-            logger.info("Checkpoint loaded, starting from epoch {}", start_epoch)
+        weights_name = self.cfg.execution.start_weights
+        if weights_name:
+            weights_path = self.cfg.paths.weights / weights_name
+            CheckpointManager.reproduce_model_from_path(self.model, weights_path)
+            logger.info(
+                "Pretrained model loaded from path {}, starting from pretrained.",
+                weights_path,
+            )
+
+        if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
+            self.checkpoint_manager.reproduce(
+                start_from.value,
+                self.model,
+                self.optimizer,
+                self.generator,
+                self.scheduler,
+                initial_state,
+            )
+
+            logger.info(
+                "Checkpoint loaded, best val loss: {}, epoch: {}",
+                initial_state.best_val_loss,
+                initial_state.epoch,
+            )
+        else:
+            logger.info("Starting from scratch")
+
+        if initial_state.epoch < self.cfg.execution.epochs:
+            # Checkpoint is at end of epoch, add 1 for next epoch.
+            initial_state.epoch += 1
         else:
             logger.info(
-                "Checkpoint loaded, run has concluded (epoch {} / {})",
-                start_epoch - 1,
-                cfg.execution.epochs,
+                "Run has concluded (epoch {} / {})",
+                initial_state.epoch,
+                self.cfg.execution.epochs,
             )
-    return start_epoch
+        return initial_state
 
-
-def train_loop(
-    start_epoch: int,
-    cfg: Config,
-    checkpoint_manager: CheckpointManager,
-    model: nn.Module,
-    loss_fn: nn.Module,
-    optimizer: Optimizer,
-    scheduler: Optional[LRScheduler],
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-):
-    logger.info("Starting training")
-
-    metric_logger = MetricLogger(cfg.output.use_wandb)
-
-    for epoch in range(start_epoch, cfg.execution.epochs + 1):
-        logger.info("Starting epoch {} / {}", epoch, cfg.execution.epochs)
-        train_metrics = train_step(
-            cfg.execution, model, train_loader, optimizer, loss_fn
+    @staticmethod
+    def from_config(cfg: Config) -> "Trainer":
+        generator = torch.Generator(device=cfg.execution.device).manual_seed(
+            cfg.execution.seed
         )
-        metric_logger.log(epoch, train_metrics)
-        val_metrics = val_step(model, loss_fn, cfg.execution.device, val_loader)
-        metric_logger.log(epoch, val_metrics)
+        logger.warning(generator.device)
 
-        if cfg.output.save_model:
-            checkpoint_manager.save_checkpoint(
-                epoch,
-                CheckpointOccasion.LATEST.value,
-                model,
-                optimizer,
-                scheduler,
+        logger.info("Instantiating dependencies")
+
+        trainset = make_dataset(cfg.data, Split.TRAIN, generator)
+        valset = make_dataset(cfg.data, Split.VAL, generator)
+
+        train_loader: DataLoader = instantiate(
+            cfg.data.trainloader, trainset, generator=generator
+        )
+        val_loader: DataLoader = instantiate(
+            cfg.data.testloader, valset, generator=generator
+        )
+
+        in_channels = cfg.data.in_channels
+        num_classes = cfg.data.num_classes
+        sidelength = cfg.data.sidelength
+
+        model: nn.Module = instantiate(
+            cfg.model,
+            in_channels=in_channels,
+            num_classes=num_classes,
+            sidelength=sidelength,
+        ).to(cfg.execution.device)
+        if cfg.execution.compile:
+            model.compile()
+        loss_fn: nn.Module = instantiate(cfg.loss).to(cfg.execution.device)
+
+        optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
+
+        scheduler: Optional[LRScheduler] = (
+            instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
+        )
+
+        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
+
+        logger.info("Experiment path: {}", str(experiment_path))
+        checkpoint_manager = CheckpointManager(experiment_path)
+
+        if cfg.output.plot:
+            plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
+        else:
+            plotter = None
+
+        logger.info("Finished instantiating dependencies")
+
+        return Trainer(
+            cfg,
+            model,
+            loss_fn,
+            optimizer,
+            train_loader,
+            val_loader,
+            generator,
+            experiment_path,
+            checkpoint_manager,
+            scheduler,
+            plotter,
+        )
+
+    def train_loop(self):
+        s = self.state
+        self._save_config()
+
+        logger.info("Starting training")
+
+        metric_logger = MetricLogger(self.cfg.output.use_wandb)
+
+        if self.plotter:
+            self.plotter.plot_prediction(self.model)
+
+        while s.epoch <= self.cfg.execution.epochs + 1:
+            logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
+            train_metrics = self.train_step()
+            metric_logger.log(s.epoch, train_metrics)
+            val_metrics = self.val_step()
+            metric_logger.log(s.epoch, val_metrics)
+
+            self.save_checkpoint(CheckpointOccasion.LATEST)
+
+            if val_metrics["val_loss"] < s.best_val_loss:
+                logger.success("New best val loss: {}", val_metrics["val_loss"])
+                s.best_val_loss = val_metrics["val_loss"]
+                self.save_checkpoint(CheckpointOccasion.BEST)
+
+            if self.scheduler:
+                self.scheduler.step()
+
+            if self.plotter:
+                self.plotter.plot_prediction(self.model, s.epoch)
+
+            s.epoch += 1
+            s.best_val_loss = s.best_val_loss
+
+        logger.success("Finished training")
+
+    def _save_config(self) -> None:
+        with self.experiment_path.open("cfg.yaml", "w") as f:
+            f.write(OmegaConf.to_yaml(self.cfg))
+
+    def train_step(self) -> dict[str, float]:
+        train_loss = 0.0
+
+        self.model.train()
+        iterator = (
+            tqdm(self.train_loader) if self.cfg.output.use_tqdm else self.train_loader
+        )
+
+        for data, target in iterator:
+            self.optimizer.zero_grad()
+
+            data = data.to(self.cfg.execution.device)
+            target = target.to(self.cfg.execution.device)
+
+            output = self.model(data)
+            batch_loss = self.loss_fn(output, target)
+
+            batch_loss.backward()
+            self.optimizer.step()
+
+            train_loss += float(batch_loss.detach().cpu().numpy())
+
+            if self.cfg.execution.dry_run:
+                break
+
+        return {"train_loss": train_loss / len(self.train_loader)}
+
+    def save_checkpoint(self, occasion: CheckpointOccasion):
+        if self.cfg.output.save_checkpoints:
+            self.checkpoint_manager.save_checkpoint(
+                occasion.value,
+                self.model,
+                self.optimizer,
+                self.generator,
+                self.scheduler,
+                self.state,
             )
 
-        if scheduler:
-            scheduler.step()
-
-    logger.success("Finished training")
-
-
-def train_step(
-    train_cfg: ExecutionConfig,
-    model: nn.Module,
-    train_loader: DataLoader,
-    optimizer: Optimizer,
-    loss_fn: nn.Module,
-) -> dict[str, float]:
-    train_loss = 0.0
-
-    model.train()
-    for data, target in train_loader:
-        # TODO: get rid of this
-        data, target = data.to(train_cfg.device), target.to(train_cfg.device)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = loss_fn(output, target)
-        train_loss += loss.item() * data.size(0)
-        loss.backward()
-        optimizer.step()
-
-        if train_cfg.dry_run:
-            break
-
-    train_len = len(train_loader.dataset)  # type: ignore
-    return {"train_loss": train_loss / train_len}
-
-
-def val_step(
-    model: nn.Module,
-    loss_fn: nn.Module,
-    device: str,
-    val_loader: DataLoader,
-) -> dict[str, float]:
-    model.eval()
-    val_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in val_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            val_loss += loss_fn(
-                output, target, reduction="sum"
-            ).item()  # sum up batch loss
-            pred = output.argmax(
-                dim=1, keepdim=True
-            )  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    val_len = len(val_loader.dataset)  # type: ignore
-    val_loss /= val_len
-    return {"val_loss": val_loss, "val_accuracy": correct / val_len}
+    def val_step(self) -> dict[str, float]:
+        return evaluate(
+            self.model,
+            self.loss_fn,
+            self.val_loader,
+            self.cfg.execution.dry_run,
+            self.cfg.output.use_tqdm,
+        )
 
 
 if __name__ == "__main__":
