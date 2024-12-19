@@ -12,9 +12,9 @@ from mlbnb.types import Split
 from torch import default_generator
 from torch.utils.data import Dataset
 
-from scaffolding_v3.data.mnist import MnistDataset
 from scaffolding_v3.config import Config, Paths
 from scaffolding_v3.data.cifar10 import Cifar10Dataset
+from scaffolding_v3.data.mnist import MnistDataset
 
 
 class Plotter:
@@ -109,6 +109,3 @@ if __name__ == "__main__":
     model = model.to("cuda")
 
     plotter.plot_prediction(model, 0)
-    # plotter._sample_task[0].shape
-
-# %%

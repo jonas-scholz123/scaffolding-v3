@@ -13,13 +13,13 @@ from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.metric_logger import MetricLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
+from mlbnb.train import train_step_image_classification
 from mlbnb.types import Split
 from omegaconf import OmegaConf
 from torch import nn
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from scaffolding_v3.config import (
     SKIP_KEYS,
@@ -32,6 +32,8 @@ from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
 
 load_config()
+
+TaskType = tuple[torch.Tensor, torch.Tensor]
 
 
 @hydra.main(version_base=None, config_name="train", config_path="")
@@ -76,9 +78,9 @@ class Trainer:
     cfg: Config
     model: torch.nn.Module
     optimizer: Optimizer
-    train_loader: DataLoader
-    val_loader: DataLoader
-    test_data: DataLoader
+    train_loader: DataLoader[TaskType]
+    val_loader: DataLoader[TaskType]
+    test_data: DataLoader[TaskType]
     generator: torch.Generator
     experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
@@ -274,31 +276,15 @@ class Trainer:
             f.write(OmegaConf.to_yaml(self.cfg))
 
     def train_step(self) -> dict[str, float]:
-        train_loss = 0.0
-
-        self.model.train()
-        iterator = (
-            tqdm(self.train_loader) if self.cfg.output.use_tqdm else self.train_loader
+        train_loss = train_step_image_classification(
+            self.model,
+            self.loss_fn,
+            self.optimizer,
+            self.train_loader,
+            self.cfg.execution.dry_run,
+            self.cfg.output.use_tqdm,
         )
-
-        for data, target in iterator:
-            self.optimizer.zero_grad()
-
-            data = data.to(self.cfg.execution.device)
-            target = target.to(self.cfg.execution.device)
-
-            output = self.model(data)
-            batch_loss = self.loss_fn(output, target)
-
-            batch_loss.backward()
-            self.optimizer.step()
-
-            train_loss += float(batch_loss.detach().cpu().numpy())
-
-            if self.cfg.execution.dry_run:
-                break
-
-        return {"train_loss": train_loss / len(self.train_loader)}
+        return {"train_loss": train_loss}
 
     def save_checkpoint(self, occasion: CheckpointOccasion):
         if self.cfg.output.save_checkpoints:
