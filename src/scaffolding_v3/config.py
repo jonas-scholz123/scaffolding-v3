@@ -166,6 +166,7 @@ defaults = [
     {"data": "mnist"},
     {"mode": "dev"},
     {"runner": "default"},
+    {"hydraout": "suppress"},
     {"override hydra/sweeper": "optuna"},
 ]
 
@@ -191,6 +192,19 @@ def load_config() -> None:
 
     cs.store(group="data", name="mnist", node=MnistDataConfig)
     cs.store(group="data", name="cifar10", node=Cifar10DataConfig)
+
+    cs.store(
+        group="hydraout",
+        name="suppress",
+        package="_global_",
+        node={
+            "hydra": {
+                "run": {"dir": "."},
+                "sweep": {"dir": ".", "subdir": "."},
+                "output_subdir": None,
+            }
+        },
+    )
 
     cs.store(
         group="runner",
@@ -301,4 +315,7 @@ def load_config() -> None:
         ),
     )
 
-    cs.store(name="train", node=Config())
+    cs.store(
+        name="train",
+        node=Config(hydra={"mode": "RUN"}),
+    )

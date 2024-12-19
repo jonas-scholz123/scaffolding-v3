@@ -22,8 +22,11 @@ logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 load_config()
 
 
-@hydra.main(version_base=None, config_name="dev", config_path="")
+@hydra.main(version_base=None, config_name="train", config_path="")
 def main(eval_cfg: Config) -> None:
+    if eval_cfg.execution.device == "cuda":
+        torch.set_default_device("cuda")
+
     df = evaluate_all(eval_cfg)
     print(drop_boring_cols(df))
 
@@ -36,6 +39,9 @@ def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
     logger.info("Initializing evaluation dataframe")
     paths = get_experiment_paths(Paths.output, dry_run_filter)
     df = make_eval_df(paths, load_eval_df(_extract_data_provider_name(eval_cfg)))
+    if df.empty:
+        logger.warning("No experiments to evaluate, exiting")
+        return df
     logger.info("Evaluate unevaluated experiments")
 
     df = evaluate_remaining(df, eval_cfg)
@@ -64,6 +70,8 @@ def make_eval_df(
     paths: list[ExperimentPath],
     initial_df: pd.DataFrame,
 ) -> pd.DataFrame:
+    if len(paths) == 0:
+        return initial_df
     dfs = [initial_df]
 
     for path in tqdm(paths):
@@ -93,16 +101,14 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
         logger.info("All experiments have been evaluated")
         return df
 
-    generator = torch.Generator(device=eval_cfg.execution.device).manual_seed(
-        eval_cfg.execution.seed
-    )
+    device = eval_cfg.execution.device
+    generator = torch.Generator(device=device).manual_seed(eval_cfg.execution.seed)
     testset = make_dataset(eval_cfg.data, Split.TEST, generator)
 
     test_loader: DataLoader = instantiate(
         eval_cfg.data.testloader,
         testset,
         generator=generator,
-        collate_fn=lambda x: x,
     )
 
     for path_str in tqdm(df[~df["evaluated"]].index):
@@ -110,8 +116,18 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
         path = ExperimentPath(path_str)  # type: ignore
         experiment_cfg: Config = path.get_config()  # type: ignore
         checkpoint_manager = CheckpointManager(path)
-        model: nn.Module = instantiate(experiment_cfg.model)
-        loss_fn: nn.Module = instantiate(experiment_cfg.loss)
+
+        in_channels = experiment_cfg.data.in_channels
+        num_classes = experiment_cfg.data.num_classes
+        sidelength = experiment_cfg.data.sidelength
+
+        model: nn.Module = instantiate(
+            experiment_cfg.model,
+            in_channels=in_channels,
+            num_classes=num_classes,
+            sidelength=sidelength,
+        ).to(device)
+        loss_fn: nn.Module = instantiate(experiment_cfg.loss).to(device)
         checkpoint_manager.reproduce_model(model, "best")
 
         test_metrics = evaluate(model, loss_fn, test_loader, False)
@@ -196,7 +212,8 @@ def save_df(df: pd.DataFrame, data_name: str) -> None:
 
 def drop_boring_cols(df: pd.DataFrame):
     """Drop columns that are the same for all experiments"""
-    droppable = [col for col in df.columns if len(df[col].unique()) == 1]
+    # As strings to deal with unhahsable types.
+    droppable = [col for col in df.columns if len(df[col].astype(str).unique()) == 1]
     logger.warning(f"Dropping columns {droppable}")
     df = df.drop(columns=droppable)
     return df
