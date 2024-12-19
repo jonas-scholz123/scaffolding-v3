@@ -229,6 +229,14 @@ class Trainer:
         s = self.state
         self._save_config()
 
+        if self.cfg.output.use_wandb and self.cfg.output.log_gradients:
+            wandb.watch(
+                self.model,
+                self.loss_fn,
+                log="all",
+                log_freq=self.cfg.output.gradient_log_freq,
+            )
+
         logger.info("Starting training")
 
         metric_logger = MetricLogger(self.cfg.output.use_wandb)
@@ -236,7 +244,7 @@ class Trainer:
         if self.plotter:
             self.plotter.plot_prediction(self.model)
 
-        while s.epoch <= self.cfg.execution.epochs + 1:
+        while s.epoch <= self.cfg.execution.epochs:
             logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
             train_metrics = self.train_step()
             metric_logger.log(s.epoch, train_metrics)

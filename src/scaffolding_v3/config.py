@@ -153,6 +153,8 @@ class OutputConfig:
     save_checkpoints: bool = True
     out_dir: Path = root / "_output"
     use_wandb: bool = False
+    log_gradients: bool = False
+    gradient_log_freq: int = 100
     use_tqdm: bool = False
     log_level: str = "INFO"
     plot: bool = True
