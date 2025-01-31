@@ -7,14 +7,12 @@ import torch
 import torch.optim.lr_scheduler
 import wandb
 from dotenv import load_dotenv
-from hydra.utils import instantiate
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.metric_logger import MetricLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.rand import seed_everything
 from mlbnb.train import train_step_image_classification
-from mlbnb.types import Split
 from omegaconf import OmegaConf
 from torch import nn
 from torch.optim.lr_scheduler import LRScheduler
@@ -22,14 +20,13 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from scaffolding_v3.config import (
-    SKIP_KEYS,
     CheckpointOccasion,
     Config,
     load_config,
 )
-from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
+from scaffolding_v3.instantiate import Dependencies
 
 load_config()
 
@@ -164,67 +161,20 @@ class Trainer:
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
-        generator = torch.Generator(device=cfg.execution.device).manual_seed(
-            cfg.execution.seed
-        )
-        logger.warning(generator.device)
-
-        logger.info("Instantiating dependencies")
-
-        trainset = make_dataset(cfg.data, Split.TRAIN, generator)
-        valset = make_dataset(cfg.data, Split.VAL, generator)
-
-        train_loader: DataLoader = instantiate(
-            cfg.data.trainloader, trainset, generator=generator
-        )
-        val_loader: DataLoader = instantiate(
-            cfg.data.testloader, valset, generator=generator
-        )
-
-        in_channels = cfg.data.in_channels
-        num_classes = cfg.data.num_classes
-        sidelength = cfg.data.sidelength
-
-        model: nn.Module = instantiate(
-            cfg.model,
-            in_channels=in_channels,
-            num_classes=num_classes,
-            sidelength=sidelength,
-        ).to(cfg.execution.device)
-        if cfg.execution.compile:
-            model.compile()
-        loss_fn: nn.Module = instantiate(cfg.loss).to(cfg.execution.device)
-
-        optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
-
-        scheduler: Optional[LRScheduler] = (
-            instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
-        )
-
-        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
-
-        logger.info("Experiment path: {}", str(experiment_path))
-        checkpoint_manager = CheckpointManager(experiment_path)
-
-        if cfg.output.plot:
-            plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
-        else:
-            plotter = None
-
-        logger.info("Finished instantiating dependencies")
+        d = Dependencies.from_config(cfg)
 
         return Trainer(
             cfg,
-            model,
-            loss_fn,
-            optimizer,
-            train_loader,
-            val_loader,
-            generator,
-            experiment_path,
-            checkpoint_manager,
-            scheduler,
-            plotter,
+            d.model,
+            d.loss_fn,
+            d.optimizer,
+            d.train_loader,
+            d.val_loader,
+            d.generator,
+            d.experiment_path,
+            d.checkpoint_manager,
+            d.scheduler,
+            d.plotter,
         )
 
     def train_loop(self):

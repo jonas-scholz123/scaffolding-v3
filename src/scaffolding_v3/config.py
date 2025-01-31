@@ -3,6 +3,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from hydra.core.config_store import ConfigStore
 from omegaconf.omegaconf import MISSING
 
 # This isn't perfect, the type annotation approach is nicer but doesn't work with omegaconf
@@ -185,9 +186,7 @@ class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
 
-def load_config() -> None:
-    from hydra.core.config_store import ConfigStore
-
+def load_config() -> ConfigStore:
     cs = ConfigStore.instance()
 
     cs.store(group="data", name="mnist", node=MnistDataConfig)
@@ -319,3 +318,4 @@ def load_config() -> None:
         name="train",
         node=Config(hydra={"mode": "RUN"}),
     )
+    return cs
