@@ -26,7 +26,7 @@ from scaffolding_v3.config import (
 )
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
-from scaffolding_v3.instantiate import Dependencies
+from scaffolding_v3.util.instantiate import Dependencies
 
 load_config()
 
@@ -119,6 +119,7 @@ class Trainer:
         initial_state = TrainerState(
             epoch=0,
             best_val_loss=np.inf,
+            val_loss=np.inf
         )
 
         weights_name = self.cfg.execution.start_weights
@@ -141,8 +142,8 @@ class Trainer:
             )
 
             logger.info(
-                "Checkpoint loaded, best val loss: {}, epoch: {}",
-                initial_state.best_val_loss,
+                "Checkpoint loaded, val loss: {}, epoch: {}",
+                initial_state.val_loss,
                 initial_state.epoch,
             )
         else:
@@ -203,11 +204,13 @@ class Trainer:
             val_metrics = self.val_step()
             metric_logger.log(s.epoch, val_metrics)
 
+            s.val_loss = val_metrics["val_loss"]
+
             self.save_checkpoint(CheckpointOccasion.LATEST)
 
-            if val_metrics["val_loss"] < s.best_val_loss:
-                logger.success("New best val loss: {}", val_metrics["val_loss"])
-                s.best_val_loss = val_metrics["val_loss"]
+            if s.val_loss < s.best_val_loss:
+                logger.success("New best val loss: {}", s.val_loss)
+                s.best_val_loss = s.val_loss
                 self.save_checkpoint(CheckpointOccasion.BEST)
 
             if self.scheduler:
@@ -253,7 +256,6 @@ class Trainer:
             self.loss_fn,
             self.val_loader,
             self.cfg.execution.dry_run,
-            self.cfg.output.use_tqdm,
         )
 
 

@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from scaffolding_v3.config import SKIP_KEYS, Config, Paths, load_config
 from scaffolding_v3.data.data import make_dataset
+from scaffolding_v3.util.config_filter import DryRunFilter
 
 logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 
@@ -32,12 +33,9 @@ def main(eval_cfg: Config) -> None:
 
 
 def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
-    # If dry run requested, only evaluate dry run experiments and vice versa
-    def dry_run_filter(cfg: Config) -> bool:
-        return cfg.execution.dry_run == eval_cfg.execution.dry_run
-
     logger.info("Initializing evaluation dataframe")
-    paths = get_experiment_paths(Paths.output, dry_run_filter)
+    # If dry run requested, only evaluate dry run experiments and vice versa
+    paths = get_experiment_paths(Paths.output, DryRunFilter(eval_cfg.execution.dry_run))
     df = make_eval_df(paths, load_eval_df(_extract_data_provider_name(eval_cfg)))
     if df.empty:
         logger.warning("No experiments to evaluate, exiting")
@@ -145,7 +143,6 @@ def evaluate(
     loss_fn: nn.Module,
     val_loader: DataLoader,
     dry_run: bool = False,
-    use_tqdm: bool = True,
 ) -> dict[str, float]:
     model.eval()
     val_loss = 0
