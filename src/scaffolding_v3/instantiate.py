@@ -29,7 +29,7 @@ class Dependencies:
     generator: Generator
     experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
-    plotter: Optional[Plotter]
+    plotter: Plotter
 
     @staticmethod
     def from_config(cfg: Config):
@@ -84,10 +84,7 @@ class Dependencies:
         logger.info("Experiment path: {}", str(experiment_path))
         checkpoint_manager = CheckpointManager(experiment_path)
 
-        if cfg.output.plot:
-            plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
-        else:
-            plotter = None
+        plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
 
         logger.info("Finished instantiating dependencies")
 

@@ -174,7 +174,7 @@ class Trainer:
             d.experiment_path,
             d.checkpoint_manager,
             d.scheduler,
-            d.plotter,
+            d.plotter if cfg.output.plot else None,
         )
 
     def train_loop(self):

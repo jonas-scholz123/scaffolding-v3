@@ -32,21 +32,16 @@ logger.info("Instantiating dependencies")
 _ = d.checkpoint_manager.reproduce_model(d.model, "best")
 # %%
 
-
-def model_loss(model, task):
+def compute_task_loss(task: tuple):
     X, y = task
     X = X.to(cfg.execution.device)
     y = y.to(cfg.execution.device)
-    y_hat = model(X)
+    y_hat = d.model(X)
     return d.loss_fn(y_hat, y)
 
 
-tasks, losses = find_best_examples(d.model, d.val_loader, model_loss, 4, mode="hardest")
+tasks, losses = find_best_examples(d.val_loader, compute_task_loss, 4, mode="easiest")
 
-if d.plotter is not None:
-    d.plotter._sample_tasks = [(t[0][0], int(t[1][0])) for t in tasks]
-    d.plotter._num_samples = 4
-    d.plotter.plot_prediction(d.model)
-    d.plotter._sample_tasks[0]
-
-# %%
+d.plotter._sample_tasks = [(t[0][0], int(t[1][0])) for t in tasks]
+d.plotter._num_samples = 4
+d.plotter.plot_prediction(d.model)
