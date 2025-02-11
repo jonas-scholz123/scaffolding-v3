@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
+import torch
 from deepsensor.data.loader import TaskLoader
 from deepsensor.data.processor import DataProcessor
 from hydra.utils import instantiate
 from mlbnb.cache import CachedDataset
 from mlbnb.types import Split
-import torch
 from torch.utils.data import Dataset
 
 from scaffolding_v3.config import DataConfig, Paths
@@ -78,8 +78,6 @@ def make_dataset(
         case Split.TEST:
             ds = data_provider.get_test_data()
             eval_mode = True
-        case _:
-            raise ValueError(f"Unknown split: {split}")
 
     task_loader = make_taskloader(data_config, paths, data_processor, ds)
 
@@ -102,15 +100,16 @@ def make_taskloader(
     data_processor: DataProcessor,
     ds: DeepSensorDataset,
 ) -> TaskLoader:
+    include_tpi = data_config.include_tpi
     raw_elevation = load_elevation_data(paths, data_config.ppu)
-    raw_hires_elevation = load_elevation_data(paths, data_config.hires_ppu)
+    raw_hires_elevation = load_elevation_data(paths, data_config.hires_ppu, include_tpi)
 
     # Normalise the data
     context = data_processor(ds.context)
     target = data_processor(ds.target)
 
-    elevation = data_processor(raw_elevation)
-    hires_elevation = data_processor(raw_hires_elevation)
+    elevation = data_processor(raw_elevation, method="min_max")
+    hires_elevation = data_processor(raw_hires_elevation, method="min_max")
 
     aux_at_targets = hires_elevation if data_config.include_aux_at_targets else None
 

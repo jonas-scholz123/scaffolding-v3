@@ -135,6 +135,7 @@ class Trainer:
 
         initial_state = TrainerState(
             epoch=0,
+            val_loss=np.inf,
             best_val_loss=np.inf,
         )
 
@@ -162,8 +163,6 @@ class Trainer:
                 initial_state.best_val_loss,
                 initial_state.epoch,
             )
-        else:
-            logger.info("Starting from scratch")
 
         if initial_state.epoch < self.cfg.execution.epochs:
             # Checkpoint is at end of epoch, add 1 for next epoch.
@@ -184,7 +183,7 @@ class Trainer:
 
         logger.info("Instantiating dependencies")
 
-        data_processor = get_data_processor(cfg.paths)
+        data_processor = get_data_processor(cfg.paths, cfg.data)
 
         # Create the primary data source (ERA5/DWD)
         data_provider: DataProvider = hydra.utils.instantiate(cfg.data.data_provider)
@@ -265,9 +264,11 @@ class Trainer:
 
             self.save_checkpoint(CheckpointOccasion.LATEST)
 
-            if val_metrics["val_loss"] < s.best_val_loss:
-                logger.success("New best val loss: {}", val_metrics["val_loss"])
-                s.best_val_loss = val_metrics["val_loss"]
+            s.val_loss = val_metrics["val_loss"]
+
+            if s.val_loss < s.best_val_loss:
+                logger.success("New best val loss: {}", s.val_loss)
+                s.best_val_loss = s.val_loss
                 self.save_checkpoint(CheckpointOccasion.BEST)
 
             if self.scheduler:
@@ -277,7 +278,6 @@ class Trainer:
                 self.plotter.plot_prediction(self.model, s.epoch)
 
             s.epoch += 1
-            s.best_val_loss = s.best_val_loss
 
         logger.success("Finished training")
 

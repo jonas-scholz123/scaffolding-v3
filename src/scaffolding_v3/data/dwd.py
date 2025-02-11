@@ -5,7 +5,7 @@ from deepsensor.data.processor import DataProcessor
 from loguru import logger
 from mlbnb.rand import sample, split
 
-from scaffolding_v3.config import Paths
+from scaffolding_v3.config import DataConfig, Paths
 from scaffolding_v3.data.dataprovider import DataProvider, DeepSensorDataset
 from scaffolding_v3.data.elevation import load_elevation_data
 
@@ -54,17 +54,19 @@ def get_dwd_data(
     return df
 
 
-def get_data_processor(paths: Paths) -> DataProcessor:
+def get_data_processor(paths: Paths, data_config: DataConfig) -> DataProcessor:
     if (paths.data_processor_dir / "data_processor_config.json").exists():
         return DataProcessor(str(paths.data_processor_dir))
-    full = get_dwd_data(paths, date_range=("2006-01-01", "2024-01-01"))
-    elevation = load_elevation_data(paths, 500)
+    full = get_dwd_data(paths)
+    hires_elevation = load_elevation_data(
+        paths, data_config.hires_ppu, include_tpi=True
+    )
+
     logger.info("Caching data processor.")
     df_unnormed = to_deepsensor_df(full)
     data_processor = DataProcessor(x1_name="lat", x2_name="lon")
     data_processor(df_unnormed)
-
-    data_processor(elevation, method="min_max")
+    data_processor(hires_elevation, method="min_max")
 
     data_processor.save(str(paths.data_processor_dir))
     logger.success("Data processor cached.")
@@ -110,6 +112,21 @@ class DwdDataProvider(DataProvider):
         if self.valset is None:
             self.trainset, self.valset = self._load_train_val()
         return self.valset
+
+    def get_all_data(self) -> DeepSensorDataset:
+        df = get_dwd_data(
+            self.paths,
+            daily_averaged=self.daily_averaged,
+        )
+        station_ids = df.reset_index()["station_id"].drop_duplicates()
+        times = df.reset_index()["time"].drop_duplicates()
+        return self._split_into_dataset(
+            df,
+            station_ids,
+            station_ids,
+            times,
+            False,
+        )
 
     def _load_train_val(self) -> tuple[DeepSensorDataset, DeepSensorDataset]:
         df = get_dwd_data(

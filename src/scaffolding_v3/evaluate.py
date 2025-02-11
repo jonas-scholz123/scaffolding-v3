@@ -105,7 +105,7 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
     generator = torch.Generator(device=eval_cfg.execution.device).manual_seed(
         eval_cfg.execution.seed
     )
-    data_processor = get_data_processor(eval_cfg.paths)
+    data_processor = get_data_processor(eval_cfg.paths, eval_cfg.data)
     data_provider = instantiate(eval_cfg.data.data_provider)
     testset = make_dataset(
         eval_cfg.data, eval_cfg.paths, data_provider, Split.TEST, data_processor
@@ -141,7 +141,9 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
     return df
 
 
-def evaluate(model: ConvNP, eval_data: Iterable, dry_run: bool, use_tqdm: bool = True) -> dict[str, float]:
+def evaluate(
+    model: ConvNP, eval_data: Iterable, dry_run: bool, use_tqdm: bool = True
+) -> dict[str, float]:
     model.model.eval()
     batch_losses = []
     iterator = tqdm(eval_data) if use_tqdm else eval_data

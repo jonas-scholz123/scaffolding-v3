@@ -120,7 +120,7 @@ if __name__ == "__main__":
     cfg = Config(data=Era5DataConfig(include_context_in_target=True))
     cfg = Config(data=DwdDataConfig())
 
-    data_processor = get_data_processor(cfg.paths)
+    data_processor = get_data_processor(cfg.paths, cfg.data)
 
     era5_data = load_era5(cfg.paths)["t2m"]
 

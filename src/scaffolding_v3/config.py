@@ -42,16 +42,17 @@ class ModelConfig:
     _target_: str = "deepsensor.model.ConvNP"
     internal_density: int = ppu
     unet_channels: tuple = (64,) * 4  # type: ignore
-    aux_t_mlp_layers: tuple = (64,) * 3  # type: ignore
+    # aux_t_mlp_layers: tuple = (64,) * 3  # type: ignore
     likelihood: str = "cnp"
-    encoder_scales: float = 0.5 / ppu
-    decoder_scale: float = 0.5 / ppu
+    # TODO Causes checkerboard
+    # encoder_scales: float = 0.5 / ppu
+    # decoder_scale: float = 0.5 / ppu
     verbose: bool = False
 
 
 @dataclass
 class OptimizerConfig:
-    lr: float = 1e-4
+    lr: float = 5e-5
 
 
 @dataclass
@@ -145,7 +146,7 @@ class TaskLoaderConfig:
 
 @dataclass
 class Era5TaskLoaderConfig(TaskLoaderConfig):
-    discrete_xarray_sampling: bool = True
+    discrete_xarray_sampling: bool = False
 
 
 @dataclass
@@ -155,7 +156,8 @@ class DataConfig:
     trainloader: TrainLoaderConfig = field(default_factory=TrainLoaderConfig)
     testloader: TestLoaderConfig = field(default_factory=TestLoaderConfig)
     include_aux_at_targets: bool = True
-    include_context_in_target: bool = True
+    include_context_in_target: bool = False
+    include_tpi: bool = True
     ppu: int = ppu
     hires_ppu: int = 2000
     cache: bool = False
@@ -363,7 +365,9 @@ def load_config() -> None:
                     "params": finetune_params,
                 }
             },
-            execution=ExecutionConfig(epochs=40, start_weights="best_era5.pt"),
+            execution=ExecutionConfig(
+                epochs=40, start_weights="era5/best_era5_continuous.pt"
+            ),
             # Slightly smaller learning rate for fine-tuning
             optimizer=AdamConfig(lr=1e-4),
             # Batch size 1 for fine-tuning
