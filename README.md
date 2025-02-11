@@ -6,6 +6,13 @@ Create a .env file with the following contents:
 WANDB_API_KEY=<Your API Key>
 ```
 
+#### Fix broken dependency:
+```
+sed -i 's/np\.math/np/g' .venv/lib/python3.12/site-packages/fdm/fdm.py
+sed -i 's/np\.factorial/math.factorial/g' .venv/lib/python3.12/site-packages/fdm/fdm.py
+sed -i '1s/^/import math\n/' .venv/lib/python3.12/site-packages/fdm/fdm.py
+```
+
 #### Non-python dependencies
 Eccods (linux):
 ```

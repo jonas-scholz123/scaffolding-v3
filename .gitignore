@@ -5,6 +5,8 @@ outputs/
 multirun/
 .vscode/
 *.DS_Store
+.zed/
+*.code-workspace
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
