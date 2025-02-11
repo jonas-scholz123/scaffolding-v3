@@ -116,7 +116,7 @@ def process_dwd():
     # Duplicates from "historical" vs "current" data folders.
     meta_df = meta_df.drop_duplicates()
     geometry = gpd.points_from_xy(meta_df.lon, meta_df.lat)
-    meta_df = gpd.GeoDataFrame(meta_df, geometry=geometry)
+    meta_df = gpd.GeoDataFrame(meta_df, geometry=geometry)  # type: ignore
     meta_df.crs = dwd_cfg.crs_str
 
     # Filter days with not enoungh data. (Mainly at the start of dataset period).
@@ -135,7 +135,7 @@ def process_dwd():
     logger.info("Processing DWD data")
     for chunk_idx in tqdm(range(0, len(df), chunk_size)):
         chunk = df.iloc[chunk_idx : chunk_idx + chunk_size]
-        chunk = meta_df.merge(chunk, on="station_id")
+        chunk = meta_df.merge(chunk, on="station_id")  # type: ignore
         chunk["date_str"] = pd.to_datetime(chunk["time"]).dt.strftime("%Y-%m-%d")
         chunk = chunk.query("time <= to_date and time >= from_date")
         chunk = chunk[["time", "lat", "lon", "t2m", "station_id"]]
@@ -179,7 +179,7 @@ def process_value_stations() -> None:
     df["station_name"] = df["station_name"].str.strip()
 
     geometry = gpd.points_from_xy(df["lon"], df["lat"])
-    df = gpd.GeoDataFrame(df, geometry=geometry)
+    df = gpd.GeoDataFrame(df, geometry=geometry)  # type: ignore
     df.crs = dwd_cfg.crs_str
     df.to_parquet(paths.value_stations)
 
@@ -231,7 +231,7 @@ def get_test_station_ids() -> set[int]:
     value_df["station_name"] = value_df["station_name"].str.strip()
 
     geometry = gpd.points_from_xy(value_df["lon"], value_df["lat"])
-    value_df = gpd.GeoDataFrame(value_df, geometry=geometry)
+    value_df = gpd.GeoDataFrame(value_df, geometry=geometry)  # type: ignore
     value_df.crs = dwd_cfg.crs_str
 
     # This is a projected crs, so we can use distance as a metric.
@@ -243,7 +243,7 @@ def get_test_station_ids() -> set[int]:
     if value_df is None:
         raise RuntimeError(f"Failed to assign crs {projected_crs} to value_df")
     joined = value_df.sjoin_nearest(meta_df, rsuffix="meta")
-    test_station_ids = set(joined["station_id"])
+    test_station_ids: set[int] = set(joined["station_id"])  # type: ignore
     return test_station_ids
 
 

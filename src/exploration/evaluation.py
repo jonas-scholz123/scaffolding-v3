@@ -3,10 +3,10 @@ import hydra
 import matplotlib.pyplot as plt
 import pandas as pd
 from deepsensor.train.train import set_gpu_default_device
-from evaluation_plots import gen_test_fig
 from mlbnb.checkpoint import CheckpointManager, ExperimentPath
 from omegaconf import DictConfig
 
+from exploration.evaluation_plots import gen_test_fig
 from scaffolding_v3.config import (
     Config,
     DataConfig,
@@ -34,7 +34,7 @@ paths = Paths()
 if cfg.execution.device == "cuda":
     set_gpu_default_device()
 
-data_processor = get_data_processor(paths)
+data_processor = get_data_processor(paths, cfg.data)
 
 data_provider = hydra.utils.instantiate(cfg.data.data_provider)
 

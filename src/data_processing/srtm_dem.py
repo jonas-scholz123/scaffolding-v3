@@ -1,13 +1,12 @@
-from pathlib import Path
-from loguru import logger
-import sys
 import urllib.request
+from zipfile import ZipFile
 
-from mlbnb.file import ensure_parent_exists
-from scaffolding_v3.config import Paths, SrtmConfig
 import rioxarray as rxr
-import pandas as pd
-from zipfile import ZipFile, BadZipFile
+from loguru import logger
+from mlbnb.file import ensure_parent_exists
+from xarray import DataArray, Dataset
+
+from scaffolding_v3.config import Paths, SrtmConfig
 
 cfg = SrtmConfig()
 
@@ -30,9 +29,9 @@ def download_srtm(paths: Paths):
 
 def process_srtm(paths: Paths):
     logger.info("Processing SRTM dataset...")
-    elevation = rxr.open_rasterio(
+    elevation: Dataset | DataArray = rxr.open_rasterio(
         paths.raw_data / "srtm" / "unzipped" / "srtm_germany_dtm.tif"
-    )
+    )  # type: ignore
     elevation = elevation.rename(
         {
             "x": "lon",

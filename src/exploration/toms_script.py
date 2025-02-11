@@ -9,6 +9,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from deepsensor import Task
 from deepsensor.train.train import set_gpu_default_device, train_epoch
 from hydra.utils import instantiate
 from mlbnb.types import Split
@@ -196,9 +197,9 @@ valset = make_dataset(cfg.data, cfg.paths, data_provider, Split.VAL, data_proces
 task_loader = trainset.task_loader
 model = instantiate(cfg.model, data_processor, task_loader)
 # %%
-train_tasks = list(trainset)
-fig = deepsensor.plot.context_encoding(model, trainset[0], task_loader, size=7)
-val_tasks = list(valset)
+train_tasks: list[Task] = list(trainset)  # type: ignore
+fig = deepsensor.plot.context_encoding(model, train_tasks[0], task_loader, size=7)
+val_tasks: list[Task] = list(valset)  # type: ignore
 val_dates = valset.times
 val_task_loader = valset.task_loader
 # %%
@@ -209,7 +210,7 @@ val_losses = []
 val_loss_best = np.inf
 
 for epoch in tqdm(range(n_epochs)):
-    train_tasks = list(trainset)
+    train_tasks: list[Task] = list(trainset)  # type: ignore
     batch_losses = train_epoch(model, train_tasks)
     train_loss = np.mean(batch_losses)
     train_losses.append(train_loss)
@@ -285,9 +286,9 @@ for i in range(3):
     lonmin = 11
     fig, axes = gen_test_fig(
         None,
-        mid_mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
-        mid_std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
-        task=mid_test_task,
+        mid_mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
+        mid_std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
+        task=mid_test_task,  # type: ignore
         add_colorbar=True,
         var_cbar_label="2m temperature [°C]",
         std_cbar_label="std dev [°C]",
@@ -304,9 +305,9 @@ for i in range(3):
 
     fig, axes = gen_test_fig(
         None,
-        mid_mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
-        mid_std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),
-        task=mid_test_task,
+        mid_mean_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
+        mid_std_ds.sel(lat=slice(latmax, latmin), lon=slice(lonmin, lonmax)),  # type: ignore
+        task=mid_test_task,  # type: ignore
         add_colorbar=True,
         var_cbar_label="2m temperature [°C]",
         std_cbar_label="std dev [°C]",
