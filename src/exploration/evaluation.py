@@ -10,7 +10,6 @@ from omegaconf import DictConfig
 from scaffolding_v3.config import (
     Config,
     DataConfig,
-    Era5DataProviderConfig,
     DwdDataProviderConfig,
     ExecutionConfig,
     OutputConfig,

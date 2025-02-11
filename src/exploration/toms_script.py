@@ -241,16 +241,6 @@ fig.savefig(os.path.join(fig_folder, fname), bbox_inches="tight")
 # %%
 model.model.load_state_dict(torch.load(model_folder + "model.pt"))
 
-model.model.load_state_dict(
-    torch.load(
-        "/home/jonas/Documents/code/scaffolding-v3/tom/models/original_good/model.pt"
-    )
-)
-# model.model.load_state_dict(
-#    torch.load("/home/jonas/Documents/code/scaffolding-v3/tom/models/no_tpi/model.pt")
-# )
-
-
 hires_aux_raw_ds = load_elevation_data(paths, 2000)
 
 for i in range(3):
