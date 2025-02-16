@@ -18,7 +18,8 @@ from omegaconf import DictConfig
 from scaffolding_v3.config import (
     Config,
     DataConfig,
-    DwdDataProviderConfig,
+    DwdDataProviderConfig,  # noqa
+    Era5DataProviderConfig,  # noqa
     ExecutionConfig,
     OutputConfig,
     Paths,
@@ -244,7 +245,19 @@ if __name__ == "__main__":
         "/home/jonas/Documents/code/scaffolding-v3/_weights/daily_avg_good.pt"
     )
 
-    path = scaffolded_tom
+    set_scales = Path(
+        "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=1000_num_stations=500_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=1_shuffle=true_num_workers=8_multiprocessing_context=spawn_include_aux_at_targets=true_include_context_in_target=false_include_tpi=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=6.7e-03_verbose=false/OPTIMIZER:Adam_lr=5.0e-05/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_start_weights=None/checkpoints/latest.pt"
+    )
+
+    era5_continuous = Path(
+        "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=Era5DataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2011-01-01_test_range=2011-01-01_2012-01-01_num_times=10000_task_loader=TaskLoader_discrete_xarray_sampling=false_trainloader=DataLoader_batch_size=1_shuffle=true/num_workers=8_multiprocessing_context=spawn_include_aux_at_targets=true_include_context_in_target=true_include_tpi=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=6.7e-03_verbose=false/OPTIMIZER:Adam_lr=5.0e-05/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=42_start_weights=None/checkpoints/latest.pt"
+    )
+
+    sim2real_from_continuous = Path(
+        "/home/jonas/Documents/code/scaffolding-v3/_output/DATA:data_provider=DwdDataProvider_val_fraction=1.0e-01_train_range=2006-01-01_2023-01-01_test_range=2023-01-01_2024-01-01_num_times=10000_num_stations=100_daily_averaged=false_task_loader=TaskLoader_discrete_xarray_sampling=true/trainloader=DataLoader_batch_size=1_shuffle=true_num_workers=8_multiprocessing_context=spawn_include_aux_at_targets=true_include_context_in_target=false_include_tpi=true_ppu=150_hires_ppu=2000_cache=false/MODEL:ConvNP_internal_density=150_unet_channels=64_64_64_64_likelihood=cnp_encoder_scales=3.3e-03_decoder_scale=6.7e-03_verbose=false/OPTIMIZER:Adam_lr=5.0e-05/SCHEDULER:StepLR_step_size=10_gamma=8.0e-01/EXECUTION:device=cuda_dry_run=false_seed=43_start_weights=best_era5_continuous.pt/checkpoints/latest.pt"
+    )
+
+    path = sim2real_from_continuous
 
     if path not in [toms_script, toms_more_data]:
         checkpoint = torch.load(path)

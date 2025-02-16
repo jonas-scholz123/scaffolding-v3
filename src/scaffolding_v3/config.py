@@ -44,9 +44,9 @@ class ModelConfig:
     unet_channels: tuple = (64,) * 4  # type: ignore
     # aux_t_mlp_layers: tuple = (64,) * 3  # type: ignore
     likelihood: str = "cnp"
-    # TODO Causes checkerboard
-    # encoder_scales: float = 0.5 / ppu
-    # decoder_scale: float = 0.5 / ppu
+    # Approximately from deepsensor (inferred on DWD data)
+    encoder_scales: float = 0.003333
+    decoder_scale: float = 0.006666
     verbose: bool = False
 
 
@@ -366,10 +366,10 @@ def load_config() -> None:
                 }
             },
             execution=ExecutionConfig(
-                epochs=40, start_weights="era5/best_era5_continuous.pt"
+                epochs=40, start_weights="best_era5_continuous.pt"
             ),
             # Slightly smaller learning rate for fine-tuning
-            optimizer=AdamConfig(lr=1e-4),
+            optimizer=AdamConfig(lr=5e-5),
             # Batch size 1 for fine-tuning
             data=DwdDataConfig(trainloader=TrainLoaderConfig(batch_size=1)),
         ),

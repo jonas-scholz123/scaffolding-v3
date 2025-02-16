@@ -15,6 +15,7 @@ from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.metric_logger import MetricLogger
 from mlbnb.paths import ExperimentPath
+from mlbnb.profiler import WandbProfiler
 from mlbnb.rand import seed_everything
 from mlbnb.types import Split
 from omegaconf import OmegaConf
@@ -127,6 +128,7 @@ class Trainer:
         self.checkpoint_manager = checkpoint_manager
         self.scheduler = scheduler
         self.plotter = plotter
+        self.profiler = WandbProfiler(disabled=not cfg.output.use_wandb)
 
         self.state = self._load_initial_state()
 
@@ -259,6 +261,7 @@ class Trainer:
             logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
             train_metrics = self.train_step()
             metric_logger.log(s.epoch, train_metrics)
+            self.profiler.flush()
             val_metrics = self.val_step()
             metric_logger.log(s.epoch, val_metrics)
 
@@ -286,25 +289,22 @@ class Trainer:
             f.write(OmegaConf.to_yaml(self.cfg))
 
     def train_step(self) -> dict[str, float]:
+        p = self.profiler.profiled
         train_loss = 0.0
 
         self.model.model.train()
-        iterator = (
-            tqdm(self.train_loader) if self.cfg.output.use_tqdm else self.train_loader
-        )
+        # This adds a progress bar.
+        train_iter = tqdm(self.train_loader, disable=not self.cfg.output.use_tqdm)
+        # This adds a wandb-based profiler (if enabled).
+        iterator = self.profiler.profiled_iter("data_loading", train_iter)
         for batch in iterator:
             if self.cfg.execution.dry_run:
                 batch = batch[:1]
 
-            task_losses = []
             self.optimizer.zero_grad()
-
-            for task in batch:
-                task_losses.append(self.model.loss_fn(task, normalise=True))
-
-            batch_loss = torch.mean(torch.stack(task_losses))
-            batch_loss.backward()
-            self.optimizer.step()
+            batch_loss = p("forward")(self.forward(batch))
+            p("backward")(batch_loss.backward())
+            p("optimizer.step")(self.optimizer.step())
 
             train_loss += float(batch_loss.detach().cpu().numpy())
 
@@ -312,6 +312,12 @@ class Trainer:
                 break
 
         return {"train_loss": train_loss / len(self.train_loader)}
+
+    def forward(self, batch) -> torch.Tensor:
+        task_losses = []
+        for task in batch:
+            task_losses.append(self.model.loss_fn(task, normalise=True))
+        return torch.mean(torch.stack(task_losses))
 
     def save_checkpoint(self, occasion: CheckpointOccasion):
         if self.cfg.output.save_checkpoints:

@@ -58,8 +58,7 @@ df.sort_values("test_val_loss")
 # %%
 
 best_path = ExperimentPath(best_df["path"].values[0])
-
-best_path
+print(best_path)
 # %%
 
 cm = CheckpointManager(best_path)

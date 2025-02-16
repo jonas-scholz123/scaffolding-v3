@@ -28,7 +28,7 @@ logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 load_config()
 
 
-@hydra.main(version_base=None, config_name="dev", config_path="")
+@hydra.main(version_base=None, config_name="finetune", config_path="")
 def main(eval_cfg: Config) -> None:
     df = evaluate_all(eval_cfg)
     print(drop_boring_cols(df))
@@ -39,8 +39,16 @@ def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
     def dry_run_filter(cfg: Config) -> bool:
         return cfg.execution.dry_run == eval_cfg.execution.dry_run
 
+    def model_filter(cfg: Config) -> bool:
+        return cfg.model == eval_cfg.model
+
+    def data_dim_filter(cfg: Config) -> bool:
+        return cfg.data.include_tpi == eval_cfg.data.include_tpi
+
     logger.info("Initializing evaluation dataframe")
-    paths = get_experiment_paths(Paths.output, dry_run_filter)
+    paths = get_experiment_paths(
+        Paths.output, [dry_run_filter, model_filter, data_dim_filter]
+    )
     df = make_eval_df(paths, load_eval_df(_extract_data_provider_name(eval_cfg)))
     logger.info("Evaluate unevaluated experiments")
 
@@ -73,20 +81,23 @@ def make_eval_df(
     dfs = [initial_df]
 
     for path in tqdm(paths):
-        experiment_cfg: Config = path.get_config()  # type: ignore
+        try:
+            experiment_cfg: Config = path.get_config()  # type: ignore
 
-        df = config_to_df(experiment_cfg)
+            df = config_to_df(experiment_cfg)
 
-        trainer_state = get_trainer_state(path)
+            trainer_state = get_trainer_state(path)
 
-        if is_already_evaluated(initial_df, path, trainer_state.epoch):
-            continue
+            if is_already_evaluated(initial_df, path, trainer_state.epoch):
+                continue
 
-        df["path"] = path.root
-        df["epoch"] = trainer_state.epoch
-        df["val_loss"] = trainer_state.best_val_loss
-        df = df.set_index("path")
-        dfs.append(df)
+            df["path"] = path.root
+            df["epoch"] = trainer_state.epoch
+            df["val_loss"] = trainer_state.best_val_loss
+            df = df.set_index("path")
+            dfs.append(df)
+        except Exception as e:
+            logger.error(f"Error processing {path}: {e}")
     df = pd.concat(dfs)
     df["evaluated"] = df["evaluated"].astype(bool)
     df = df.sort_values("val_loss", ascending=True)
