@@ -228,11 +228,13 @@ def era5_filter(cfg: Config) -> bool:
 
 def drop_boring_cols(df: pd.DataFrame):
     """Drop columns that are the same for all experiments"""
-    droppable = [col for col in df.columns if len(df[col].unique()) == 1]
-    droppable += ["data.data_provider.train_range", "data.data_provider.test_range"]
-    logger.warning(f"Dropping columns {droppable}")
-    df = df.drop(columns=droppable)
-    return df
+    return df.loc[:, ~df.apply(_all_same, axis=0)]
+
+
+def _all_same(series: pd.Series) -> bool:
+    """Returns True if all values in a series are the same, handling lists."""
+    converted = series.apply(lambda x: tuple(x) if isinstance(x, list) else x)
+    return converted.nunique() == 1
 
 
 if __name__ == "__main__":
