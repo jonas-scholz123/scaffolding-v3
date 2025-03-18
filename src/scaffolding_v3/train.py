@@ -26,7 +26,7 @@ from scaffolding_v3.config import (
 )
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
-from scaffolding_v3.util.instantiate import Dependencies
+from scaffolding_v3.util.instantiate import TrainDependencies
 
 load_config()
 
@@ -116,11 +116,7 @@ class Trainer:
     def _load_initial_state(self) -> TrainerState:
         start_from = self.cfg.execution.start_from
 
-        initial_state = TrainerState(
-            epoch=0,
-            best_val_loss=np.inf,
-            val_loss=np.inf
-        )
+        initial_state = TrainerState(epoch=0, best_val_loss=np.inf, val_loss=np.inf)
 
         weights_name = self.cfg.execution.start_weights
         if weights_name:
@@ -162,7 +158,7 @@ class Trainer:
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
-        d = Dependencies.from_config(cfg)
+        d = TrainDependencies.from_config(cfg)
 
         return Trainer(
             cfg,

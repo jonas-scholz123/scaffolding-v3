@@ -2,11 +2,11 @@
 from mlbnb.examples import find_best_examples
 
 from scaffolding_v3.util.explore import load_best_weights, setup
-from scaffolding_v3.util.instantiate import Dependencies
+from scaffolding_v3.util.instantiate import TrainDependencies
 
 cfg = setup(overrides=["data.testloader.batch_size=1"])
 
-d = Dependencies.from_config(cfg)
+d = TrainDependencies.from_config(cfg)
 
 load_best_weights(d.model, cfg)
 

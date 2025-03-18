@@ -18,7 +18,7 @@ from scaffolding_v3.plot.plotter import Plotter
 
 
 @dataclass
-class Dependencies:
+class TrainDependencies:
     model: Module
     train_loader: DataLoader
     val_loader: DataLoader
@@ -86,7 +86,7 @@ class Dependencies:
 
         logger.info("Finished instantiating dependencies")
 
-        return Dependencies(
+        return TrainDependencies(
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
