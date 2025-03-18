@@ -141,7 +141,6 @@ class CheckpointOccasion(Enum):
 @dataclass
 class ExecutionConfig:
     device: str = "cuda"
-    compile: bool = True
     dry_run: bool = True
     epochs: int = 15
     seed: int = 42

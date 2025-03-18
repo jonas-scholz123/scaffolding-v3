@@ -1,20 +1,20 @@
 from dataclasses import dataclass
 from typing import Optional
+
+from hydra.utils import instantiate
 from loguru import logger
+from mlbnb.checkpoint import CheckpointManager
+from mlbnb.paths import ExperimentPath
+from mlbnb.types import Split
 from torch import Generator
 from torch.nn import Module
-from hydra.utils import instantiate
-from torch.utils.data import DataLoader
-from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.optimizer import Optimizer
+from torch.utils.data import DataLoader
 
-from mlbnb.types import Split
-from mlbnb.paths import ExperimentPath
-from mlbnb.checkpoint import CheckpointManager
-
-from scaffolding_v3.config import SKIP_KEYS, Config
-from scaffolding_v3.plot.plotter import Plotter
+from scaffolding_v3.config import Config
 from scaffolding_v3.data.data import make_dataset
+from scaffolding_v3.plot.plotter import Plotter
 
 
 @dataclass
@@ -69,8 +69,6 @@ class Dependencies:
             num_classes=num_classes,
             sidelength=sidelength,
         ).to(cfg.execution.device)
-        if cfg.execution.compile:
-            model.compile()
         loss_fn: Module = instantiate(cfg.loss).to(cfg.execution.device)
 
         optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
@@ -79,7 +77,7 @@ class Dependencies:
             instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
         )
 
-        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output, SKIP_KEYS)
+        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output)
 
         logger.info("Experiment path: {}", str(experiment_path))
         checkpoint_manager = CheckpointManager(experiment_path)
