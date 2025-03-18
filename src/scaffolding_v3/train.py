@@ -9,15 +9,16 @@ import wandb
 from dotenv import load_dotenv
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
-from mlbnb.metric_logger import MetricLogger
+from mlbnb.metric_logger import WandbLogger
 from mlbnb.paths import ExperimentPath
+from mlbnb.profiler import WandbProfiler
 from mlbnb.rand import seed_everything
-from mlbnb.train import train_step_image_classification
 from omegaconf import OmegaConf
 from torch import nn
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from scaffolding_v3.config import (
     CheckpointOccasion,
@@ -63,13 +64,6 @@ def _configure_outputs(cfg: Config):
         "ignore", category=DeprecationWarning, module="google.protobuf"
     )
 
-    if cfg.output.use_wandb:
-        wandb.init(
-            project="scaffolding_v3",
-            config=OmegaConf.to_container(cfg),  # type: ignore
-            dir=cfg.output.out_dir,
-        )  # type: ignore
-
 
 class Trainer:
     cfg: Config
@@ -113,10 +107,19 @@ class Trainer:
 
         self.state = self._load_initial_state()
 
+        self._init_wandb()
+        self.metric_logger = WandbLogger(
+            self.cfg.output.use_wandb,
+            self.state,
+        )
+        self.profiler = WandbProfiler(self.metric_logger)
+
     def _load_initial_state(self) -> TrainerState:
         start_from = self.cfg.execution.start_from
 
-        initial_state = TrainerState(epoch=0, best_val_loss=np.inf, val_loss=np.inf)
+        initial_state = TrainerState(
+            step=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
+        )
 
         weights_name = self.cfg.execution.start_weights
         if weights_name:
@@ -138,9 +141,10 @@ class Trainer:
             )
 
             logger.info(
-                "Checkpoint loaded, val loss: {}, epoch: {}",
+                "Checkpoint loaded, val loss: {}, epoch: {}, step: {}",
                 initial_state.val_loss,
                 initial_state.epoch,
+                initial_state.step,
             )
         else:
             logger.info("Starting from scratch")
@@ -148,6 +152,7 @@ class Trainer:
         if initial_state.epoch < self.cfg.execution.epochs:
             # Checkpoint is at end of epoch, add 1 for next epoch.
             initial_state.epoch += 1
+            initial_state.step += 1
         else:
             logger.info(
                 "Run has concluded (epoch {} / {})",
@@ -155,6 +160,16 @@ class Trainer:
                 self.cfg.execution.epochs,
             )
         return initial_state
+
+    def _init_wandb(self) -> None:
+        if self.cfg.output.use_wandb:
+            wandb.init(
+                project=self.cfg.output.wandb_project,
+                config=OmegaConf.to_container(self.cfg),  # type: ignore
+                dir=self.cfg.output.out_dir,
+                name=self.experiment_path.name,
+                id=self.experiment_path.name,
+            )
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
@@ -188,17 +203,14 @@ class Trainer:
 
         logger.info("Starting training")
 
-        metric_logger = MetricLogger(self.cfg.output.use_wandb)
-
         if self.plotter:
             self.plotter.plot_prediction(self.model)
 
         while s.epoch <= self.cfg.execution.epochs:
             logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
-            train_metrics = self.train_step()
-            metric_logger.log(s.epoch, train_metrics)
-            val_metrics = self.val_step()
-            metric_logger.log(s.epoch, val_metrics)
+            self.train_epoch()
+            val_metrics = self.val_epoch()
+            self.metric_logger.log(val_metrics)
 
             s.val_loss = val_metrics["val_loss"]
 
@@ -224,16 +236,50 @@ class Trainer:
         with self.experiment_path.open("cfg.yaml", "w") as f:
             f.write(OmegaConf.to_yaml(self.cfg))
 
-    def train_step(self) -> dict[str, float]:
-        train_loss = train_step_image_classification(
-            self.model,
-            self.loss_fn,
-            self.optimizer,
-            self.train_loader,
-            self.cfg.execution.dry_run,
-            self.cfg.output.use_tqdm,
+    def train_epoch(self) -> None:
+        self.model.train()
+        device = next(self.model.parameters()).device
+        train_loader: tqdm[TaskType] = tqdm(
+            self.train_loader, disable=not self.cfg.output.use_tqdm
         )
-        return {"train_loss": train_loss}
+        dry_run = self.cfg.execution.dry_run
+
+        if dry_run:
+            # Make sure the tensor dimensions are correct.
+            features, target = next(iter(train_loader))
+            if features.dim() != 4:
+                raise ValueError(
+                    f"Expected a tensor of shape (batch_size, channels, height, width), \
+                    but got {features.shape}"
+                )
+            if target.dim() != 1:
+                msg = (
+                    f"Expected a target of shape (batch_size,), but got {target.shape}"
+                )
+                raise ValueError(msg)
+
+        p = self.profiler
+        for features, target in p.profiled_iter("dataload", train_loader):
+            with p.profile("data.to"):
+                features = features.to(device)
+                target = target.to(device)
+
+            with p.profile("forward"):
+                output = self.model(features)
+                batch_loss = self.loss_fn(output, target)
+
+            with p.profile("backward"):
+                batch_loss.backward()
+                self.metric_logger.log({"train_loss": batch_loss.item()})
+
+            with p.profile("optimizer.step"):
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+
+            self.state.step += 1
+
+            if dry_run:
+                break
 
     def save_checkpoint(self, occasion: CheckpointOccasion):
         if self.cfg.output.save_checkpoints:
@@ -246,7 +292,7 @@ class Trainer:
                 self.state,
             )
 
-    def val_step(self) -> dict[str, float]:
+    def val_epoch(self) -> dict[str, float]:
         return evaluate(
             self.model,
             self.loss_fn,

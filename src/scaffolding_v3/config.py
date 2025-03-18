@@ -153,6 +153,7 @@ class OutputConfig:
     save_checkpoints: bool = True
     out_dir: Path = root / "_output"
     use_wandb: bool = False
+    wandb_project: str = "scaffolding-v3"
     log_gradients: bool = False
     gradient_log_freq: int = 100
     use_tqdm: bool = False
