@@ -28,3 +28,6 @@ license = { text = "MIT" }
 
 [tool.pdm.dev-dependencies]
 dev = ["-e file:///${PROJECT_ROOT}/../mlbnb#egg=mlbnb"]
+
+[tool.ty.src]
+root = "./src"
