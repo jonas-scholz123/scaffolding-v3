@@ -67,10 +67,10 @@ class Plotter:
             # Normalize image to [0, 1]:
             img = (img - img.min()) / (img.max() - img.min())
             img = img.permute(1, 2, 0)
-            axs[0, i].imshow(img.squeeze().cpu().numpy(), cmap="grey")
-            axs[0, i].set_title(f"True: {target}, Pred: {pred}")
+            axs[0, i].imshow(img.squeeze().cpu().numpy(), cmap="grey")  # type: ignore
+            axs[0, i].set_title(f"True: {target}, Pred: {pred}")  # type: ignore
             if target != pred:
-                axs[0, i].title.set_color("red")
+                axs[0, i].title.set_color("red")  # type: ignore
         return fig
 
     def _save_or_show(self, fig: Figure, fname: str) -> None:

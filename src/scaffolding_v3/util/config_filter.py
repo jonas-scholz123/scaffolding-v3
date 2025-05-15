@@ -23,6 +23,7 @@ class ConfigFilter(ABC):
         """
         pass
 
+
 class DryRunFilter(ConfigFilter):
     """
     A filter that checks if the configuration file has dry run enabled.
@@ -33,6 +34,7 @@ class DryRunFilter(ConfigFilter):
 
     def __call__(self, cfg: Config) -> bool:
         return cfg.execution.dry_run == self.dry_run
+
 
 class ModelFilter(ConfigFilter):
     """

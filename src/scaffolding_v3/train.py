@@ -37,7 +37,7 @@ TaskType = tuple[torch.Tensor, torch.Tensor]
 @hydra.main(version_base=None, config_name="train", config_path="")
 def main(cfg: Config) -> float:
     try:
-        _configure_outputs(cfg)
+        _configure_outputs()
 
         logger.debug(OmegaConf.to_yaml(cfg))
 
@@ -56,7 +56,7 @@ def main(cfg: Config) -> float:
         raise e
 
 
-def _configure_outputs(cfg: Config):
+def _configure_outputs():
     load_dotenv()
 
     # These are all due to deprecation warnings raised within dependencies.

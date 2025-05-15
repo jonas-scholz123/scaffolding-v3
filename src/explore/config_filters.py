@@ -7,9 +7,9 @@ from scaffolding_v3.util.instantiate import TrainDependencies
 
 cs = load_config()
 
-query_cfg: Config = compose(
+query_cfg: Config = compose(  # type: ignore
     config_name="train", overrides=["mode=prod", "data.testloader.batch_size=1"]
-)  # type: ignore
+)
 
 d = TrainDependencies.from_config(query_cfg)
 load_best_weights(d.model, query_cfg)

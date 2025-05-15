@@ -21,13 +21,12 @@ dependencies = [
     "hydra-submitit-launcher>=1.2.0",
     "ruff>=0.9.4",
     "ty>=0.0.1a3",
+    "pre-commit>=4.2.0",
+    "mlbnb>=0.1.1",
 ]
 requires-python = "==3.11.*"
 readme = "README.md"
 license = { text = "MIT" }
-
-[tool.pdm.dev-dependencies]
-dev = ["-e file:///${PROJECT_ROOT}/../mlbnb#egg=mlbnb"]
 
 [tool.ty.src]
 root = "./src"
