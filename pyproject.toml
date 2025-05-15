@@ -20,6 +20,7 @@ dependencies = [
     "hydra-optuna-sweeper>=1.2.0",
     "hydra-submitit-launcher>=1.2.0",
     "ruff>=0.9.4",
+    "ty>=0.0.1a3",
 ]
 requires-python = "==3.11.*"
 readme = "README.md"
