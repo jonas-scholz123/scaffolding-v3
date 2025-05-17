@@ -2,14 +2,14 @@
 
 from hydra import compose, initialize
 
-from config.config import Config, load_config
+from config.config import Config, init_configs
 from scaffolding_v3.train import Trainer
 
 
 def test_trainer_initialises() -> None:
     """Checks that the config initializes as expected."""
 
-    load_config()
+    init_configs()
     initialize(config_path=None, version_base=None)
     # TODO: make this a parameterised test
     config_name = "train"

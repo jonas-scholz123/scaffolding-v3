@@ -12,9 +12,10 @@ from mlbnb.types import Split
 from torch import default_generator
 from torch.utils.data import Dataset
 
-from config.config import Config, Paths
+from config.config import Config
 from scaffolding_v3.data.cifar10 import Cifar10Dataset
 from scaffolding_v3.data.mnist import MnistDataset
+from scaffolding_v3.util.instantiate import load_config
 
 
 class Plotter:
@@ -84,15 +85,17 @@ if __name__ == "__main__":
     cfg = Config()
     data = "mnist"
 
+    cfg = load_config()
+
     if data == "cifar":
-        dataset = Cifar10Dataset(Paths(), 0.1, Split.TRAIN, default_generator)
+        dataset = Cifar10Dataset(cfg.paths, 0.1, Split.TRAIN, default_generator)
         plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
 
         in_channels = 3
         num_classes = 10
         sidelength = 32
     else:
-        dataset = MnistDataset(Paths(), 0.1, Split.TRAIN, default_generator)
+        dataset = MnistDataset(cfg.paths, 0.1, Split.TRAIN, default_generator)
         plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
 
         in_channels = 1

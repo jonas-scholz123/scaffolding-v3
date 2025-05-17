@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from hydra import compose, initialize
 from hydra.utils import instantiate
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager
@@ -12,7 +13,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
-from config.config import Config
+from config.config import Config, init_configs
 from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.plot.plotter import Plotter
 
@@ -99,3 +100,25 @@ class Experiment:
             checkpoint_manager=checkpoint_manager,
             plotter=plotter,
         )
+
+
+def load_config(
+    config_name: str = "base",
+    mode: str = "dev",
+    data: str = "mnist",
+    overrides: Optional[list[str]] = None,
+) -> Config:
+    """
+    Load the configuration from the given config name and path.
+    """
+    init_configs()
+
+    all_overrides = [f"mode={mode}", f"data={data}"] + (overrides or [])
+
+    with initialize(config_path="."):
+        cfg: Config = compose(  # type: ignore
+            config_name=config_name, overrides=all_overrides
+        )
+        Experiment.from_config(cfg)
+
+    return cfg

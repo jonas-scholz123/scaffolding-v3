@@ -22,13 +22,13 @@ from tqdm import tqdm
 from config.config import (
     CheckpointOccasion,
     Config,
-    load_config,
+    init_configs,
 )
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
 from scaffolding_v3.util.instantiate import Experiment
 
-load_config()
+init_configs()
 
 TaskType = tuple[torch.Tensor, torch.Tensor]
 

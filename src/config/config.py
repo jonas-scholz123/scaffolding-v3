@@ -105,7 +105,7 @@ def _get_runtime_cfg() -> RuntimeConfig:
     return RuntimeConfig(device=device, root=root)
 
 
-def load_config() -> ConfigStore:
+def init_configs() -> ConfigStore:
     cs = ConfigStore.instance()
 
     cs.store(name="base_cfg", node=Config(runtime=_get_runtime_cfg()))

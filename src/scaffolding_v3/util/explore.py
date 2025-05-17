@@ -9,7 +9,7 @@ from mlbnb.checkpoint import CheckpointManager
 from mlbnb.paths import ExperimentPath, get_experiment_paths
 from torch.nn import Module
 
-from config.config import Config, load_config
+from config.config import Config, init_configs
 from scaffolding_v3.util.config_filter import DryRunFilter, ModelFilter
 
 
@@ -27,7 +27,7 @@ def setup(
     :param mode: The mode to set, defaults to "prod" (prod | dev)
     :param overrides: A list of additional overrides to apply
     """
-    load_config()
+    init_configs()
     GlobalHydra.instance().clear()
     initialize(config_path=None, version_base=None)
 
