@@ -4,29 +4,21 @@ from typing import Any, Optional, Sequence
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-from hydra.utils import instantiate
 from loguru import logger
 from matplotlib.figure import Figure
 from mlbnb.paths import ExperimentPath
-from mlbnb.types import Split
-from torch import default_generator
 from torch.utils.data import Dataset
-
-from config.config import Config
-from scaffolding_v3.data.cifar10 import Cifar10Dataset
-from scaffolding_v3.data.mnist import MnistDataset
-from scaffolding_v3.util.instantiate import load_config
 
 
 class Plotter:
     def __init__(
         self,
-        cfg: Config,
+        device: str | torch.device,
         test_data: Dataset,
         save_to: Optional[ExperimentPath] = None,
         sample_indices: Sequence[int] = [0],
     ):
-        self._cfg = cfg
+        self._device = device
         self._sample_tasks: list = [test_data[i] for i in sample_indices]
         self._num_samples = len(sample_indices)
         self._test_data = test_data
@@ -58,7 +50,7 @@ class Plotter:
         )
         for i, task in enumerate(self._sample_tasks):
             img, target = task
-            img = img.to(self._cfg.execution.device)
+            img = img.to(self._device)
             # Squeeze and/or unsqueeze to ensure image is C_W_H:
             if img.dim() == 2:
                 img = img.unsqueeze(0).unsqueeze(0)
@@ -79,36 +71,3 @@ class Plotter:
             fig.savefig(self._dir.at(fname), bbox_inches="tight", dpi=300)
         else:
             plt.show()
-
-
-if __name__ == "__main__":
-    cfg = Config()
-    data = "mnist"
-
-    cfg = load_config()
-
-    if data == "cifar":
-        dataset = Cifar10Dataset(cfg.paths, 0.1, Split.TRAIN, default_generator)
-        plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
-
-        in_channels = 3
-        num_classes = 10
-        sidelength = 32
-    else:
-        dataset = MnistDataset(cfg.paths, 0.1, Split.TRAIN, default_generator)
-        plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
-
-        in_channels = 1
-        num_classes = 10
-        sidelength = 28
-
-    model: nn.Module = instantiate(
-        cfg.model,
-        in_channels=in_channels,
-        num_classes=num_classes,
-        sidelength=sidelength,
-    )
-
-    model = model.to("cuda")
-
-    plotter.plot_prediction(model, 0)

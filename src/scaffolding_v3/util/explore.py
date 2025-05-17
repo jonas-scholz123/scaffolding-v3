@@ -33,7 +33,7 @@ def setup(
 
     all_overrides = ["mode=" + mode] + (overrides or [])
     cfg: Config = compose(config_name=config_name, overrides=all_overrides)  # type: ignore
-    torch.set_default_device(cfg.execution.device)
+    torch.set_default_device(cfg.runtime.device)
 
     return cfg
 

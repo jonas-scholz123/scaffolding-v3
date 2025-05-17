@@ -30,52 +30,35 @@ class Experiment:
     generator: Generator
     experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
-    plotter: Plotter
+    plotter: Optional[Plotter]
 
     @staticmethod
-    def from_config(cfg: Config):
+    def from_config(cfg: Config) -> "Experiment":
         """
         Instantiates all dependencies for the training loop.
 
         This is useful for exploration where you want to have easy access to the
         instantiated objects used for training and evaluation.
         """
-        generator = Generator(device=cfg.execution.device).manual_seed(
-            cfg.execution.seed
-        )
-
         logger.info("Instantiating dependencies")
 
-        trainset = make_dataset(cfg.data, Split.TRAIN, generator)
-        valset = make_dataset(cfg.data, Split.VAL, generator)
-        testset = make_dataset(cfg.data, Split.TEST, generator)
+        exp = instantiate(cfg)
+        rng = exp.generator.manual_seed(cfg.execution.seed)
 
-        train_loader: DataLoader = instantiate(
-            cfg.data.trainloader, trainset, generator=generator
-        )
-        val_loader: DataLoader = instantiate(
-            cfg.data.testloader, valset, generator=generator
-        )
-        test_loader: DataLoader = instantiate(
-            cfg.data.testloader, testset, generator=generator
-        )
+        trainset = make_dataset(exp.data, Split.TRAIN, rng)
+        valset = make_dataset(exp.data, Split.VAL, rng)
+        testset = make_dataset(exp.data, Split.TEST, rng)
 
-        in_channels = cfg.data.in_channels
-        num_classes = cfg.data.num_classes
-        sidelength = cfg.data.sidelength
+        train_loader: DataLoader = exp.data.trainloader(trainset, generator=rng)
+        val_loader: DataLoader = exp.data.testloader(valset, generator=rng)
+        test_loader: DataLoader = exp.data.testloader(testset, generator=rng)
 
-        model: Module = instantiate(
-            cfg.model,
-            in_channels=in_channels,
-            num_classes=num_classes,
-            sidelength=sidelength,
-        ).to(cfg.execution.device)
-        loss_fn: Module = instantiate(cfg.loss).to(cfg.execution.device)
-
-        optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
+        loss_fn: Module = exp.loss.to(cfg.runtime.device)
+        model: Module = exp.model.to(cfg.runtime.device)
+        optimizer = exp.optimizer(model.parameters())
 
         scheduler: Optional[LRScheduler] = (
-            instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
+            exp.scheduler(optimizer) if exp.scheduler else None
         )
 
         experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output)
@@ -83,7 +66,11 @@ class Experiment:
         logger.info("Experiment path: {}", str(experiment_path))
         checkpoint_manager = CheckpointManager(experiment_path)
 
-        plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
+        plotter: Optional[Plotter] = (
+            exp.output.plotter(test_data=valset, save_to=experiment_path)
+            if exp.output.plotter
+            else None
+        )
 
         logger.info("Finished instantiating dependencies")
 
@@ -95,7 +82,7 @@ class Experiment:
             optimizer=optimizer,
             loss_fn=loss_fn,
             scheduler=scheduler,
-            generator=generator,
+            generator=rng,
             experiment_path=experiment_path,
             checkpoint_manager=checkpoint_manager,
             plotter=plotter,

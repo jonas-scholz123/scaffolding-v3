@@ -17,6 +17,6 @@ def test_trainer_initialises() -> None:
 
     all_overrides = ["mode=" + mode]
     cfg: Config = compose(config_name=config_name, overrides=all_overrides)  # type: ignore
-    cfg.execution.device = "cpu"
+    cfg.runtime.device = "cpu"
 
     _ = Trainer.from_config(cfg)

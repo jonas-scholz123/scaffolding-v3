@@ -33,6 +33,7 @@ class DatasetConfig:
     paths: Paths
     val_fraction: float
     _target_: str
+    _partial_: bool
 
 
 @dataclass
@@ -53,7 +54,6 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str
     dry_run: bool
     epochs: int
     seed: int
@@ -71,8 +71,7 @@ class OutputConfig:
     gradient_log_freq: int
     use_tqdm: bool
     log_level: str
-    plot: bool
-    sample_indices: tuple[int, ...]
+    plotter: dict
 
 
 @dataclass
@@ -85,6 +84,7 @@ class RuntimeConfig:
 class Config:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     data: DataConfig = MISSING
+    generator: dict = MISSING
     model: dict = MISSING
     loss: dict = MISSING
     optimizer: dict = MISSING

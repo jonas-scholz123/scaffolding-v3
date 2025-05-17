@@ -19,17 +19,25 @@ paths:
   output: ${runtime.root}/_output
   weights: ${runtime.root}/_weights
 
+generator:
+  _target_: torch.Generator
+  device: ${runtime.device}
+
 loss:
   _target_: torch.nn.NLLLoss
 
 model:
   _target_: scaffolding_v3.model.convnet.ConvNet
+  in_channels: ${data.in_channels}
+  num_classes: ${data.num_classes}
+  sidelength: ${data.sidelength}
   conv_channels: [32, 64]
   linear_channels: [128]
   use_dropout: true
 
 optimizer:
   _target_: torch.optim.Adam
+  _partial_: true
   lr: 0.1
 
 output:
@@ -40,16 +48,19 @@ output:
   gradient_log_freq: 100
   use_tqdm: false
   log_level: INFO
-  plot: true
-  sample_indices: [0, 1, 2, 3]
+  plotter:
+    _target_: scaffolding_v3.plot.plotter.Plotter
+    _partial_: true
+    device: ${runtime.device}
+    sample_indices: [0, 1, 2, 3]
 
 scheduler:
   _target_: torch.optim.lr_scheduler.StepLR
+  _partial_: true
   step_size: 10
   gamma: 0.8
 
 execution:
-  device: ${runtime.device}
   epochs: 15
   seed: 42
   start_from: LATEST
@@ -62,12 +73,14 @@ data:
   cache: false
   trainloader:
     _target_: torch.utils.data.DataLoader
+    _partial_: true
     batch_size: 64
     shuffle: true
     num_workers: 0
     multiprocessing_context: null
   testloader:
     _target_: torch.utils.data.DataLoader
+    _partial_: true
     batch_size: 1000
     shuffle: false
     num_workers: 0

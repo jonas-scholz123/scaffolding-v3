@@ -25,7 +25,7 @@ init_configs()
 
 @hydra.main(version_base=None, config_name="base", config_path="../config")
 def main(eval_cfg: Config) -> None:
-    if eval_cfg.execution.device == "cuda":
+    if eval_cfg.runtime.device == "cuda":
         torch.set_default_device("cuda")
 
     df = evaluate_all(eval_cfg)
@@ -103,7 +103,7 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
         logger.info("All experiments have been evaluated")
         return df
 
-    device = eval_cfg.execution.device
+    device = eval_cfg.runtime.device
     generator = torch.Generator(device=device).manual_seed(eval_cfg.execution.seed)
     testset = make_dataset(eval_cfg.data, Split.TEST, generator)
 

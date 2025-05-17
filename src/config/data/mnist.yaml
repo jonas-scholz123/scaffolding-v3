@@ -1,5 +1,6 @@
 dataset:
   _target_: scaffolding_v3.data.mnist.MnistDataset
+  _partial_: true
 in_channels: 1
 num_classes: 10
 sidelength: 28

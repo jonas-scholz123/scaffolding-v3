@@ -40,7 +40,7 @@ def main(cfg: Config) -> float:
 
         logger.debug(OmegaConf.to_yaml(cfg))
 
-        if cfg.execution.device == "cuda":
+        if cfg.runtime.device == "cuda":
             torch.set_default_device("cuda")
 
         seed_everything(cfg.execution.seed)
@@ -185,7 +185,7 @@ class Trainer:
             exp.experiment_path,
             exp.checkpoint_manager,
             exp.scheduler,
-            exp.plotter if cfg.output.plot else None,
+            exp.plotter,
         )
 
     def train_loop(self):
