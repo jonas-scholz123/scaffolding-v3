@@ -5,7 +5,7 @@ These are commonly used to find experiment paths that match certain criteria.
 
 from abc import ABC, abstractmethod
 
-from scaffolding_v3.config import Config, ModelConfig
+from config.config import Config, ModelConfig
 
 
 class ConfigFilter(ABC):

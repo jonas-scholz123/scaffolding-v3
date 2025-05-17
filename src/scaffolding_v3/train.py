@@ -4,7 +4,6 @@ from typing import Optional
 import hydra
 import numpy as np
 import torch
-import torch.optim.lr_scheduler
 import wandb
 from dotenv import load_dotenv
 from loguru import logger
@@ -20,14 +19,14 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from scaffolding_v3.config import (
+from config.config import (
     CheckpointOccasion,
     Config,
     load_config,
 )
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
-from scaffolding_v3.util.instantiate import TrainDependencies
+from scaffolding_v3.util.instantiate import Experiment
 
 load_config()
 
@@ -173,20 +172,20 @@ class Trainer:
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
-        d = TrainDependencies.from_config(cfg)
+        exp = Experiment.from_config(cfg)
 
         return Trainer(
             cfg,
-            d.model,
-            d.loss_fn,
-            d.optimizer,
-            d.train_loader,
-            d.val_loader,
-            d.generator,
-            d.experiment_path,
-            d.checkpoint_manager,
-            d.scheduler,
-            d.plotter if cfg.output.plot else None,
+            exp.model,
+            exp.loss_fn,
+            exp.optimizer,
+            exp.train_loader,
+            exp.val_loader,
+            exp.generator,
+            exp.experiment_path,
+            exp.checkpoint_manager,
+            exp.scheduler,
+            exp.plotter if cfg.output.plot else None,
         )
 
     def train_loop(self):

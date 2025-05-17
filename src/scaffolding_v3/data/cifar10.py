@@ -3,7 +3,7 @@ from mlbnb.types import Split
 from torch.utils.data import Dataset, random_split
 from torchvision import datasets, transforms
 
-from scaffolding_v3.config import Paths
+from config.config import Paths
 
 
 class Cifar10Dataset(Dataset):

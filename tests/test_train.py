@@ -1,9 +1,9 @@
 """Checks that determinstic config initializes as expected."""
 
-from scaffolding_v3.config import Config, load_config
-from scaffolding_v3.train import Trainer
-
 from hydra import compose, initialize
+
+from config.config import Config, load_config
+from scaffolding_v3.train import Trainer
 
 
 def test_trainer_initialises() -> None:

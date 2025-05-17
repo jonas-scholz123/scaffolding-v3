@@ -12,13 +12,13 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
-from scaffolding_v3.config import Config
+from config.config import Config
 from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.plot.plotter import Plotter
 
 
 @dataclass
-class TrainDependencies:
+class Experiment:
     model: Module
     train_loader: DataLoader
     val_loader: DataLoader
@@ -86,7 +86,7 @@ class TrainDependencies:
 
         logger.info("Finished instantiating dependencies")
 
-        return TrainDependencies(
+        return Experiment(
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,

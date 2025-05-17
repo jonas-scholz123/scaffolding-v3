@@ -140,7 +140,7 @@ class CheckpointOccasion(Enum):
 
 @dataclass
 class ExecutionConfig:
-    device: str = "cuda"
+    device: str = "cpu"
     dry_run: bool = True
     epochs: int = 15
     seed: int = 42
@@ -166,9 +166,6 @@ defaults = [
     "_self_",
     {"data": "mnist"},
     {"mode": "dev"},
-    {"runner": "default"},
-    {"hydraout": "suppress"},
-    {"override hydra/sweeper": "optuna"},
 ]
 
 
@@ -184,6 +181,7 @@ class Config:
     scheduler: Optional[SchedulerConfig] = field(default_factory=StepLRConfig)
     paths: Paths = field(default_factory=Paths)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    hydra: dict = field(default_factory=lambda: {"mode": "RUN"})
 
 
 def load_config() -> ConfigStore:
@@ -191,64 +189,6 @@ def load_config() -> ConfigStore:
 
     cs.store(group="data", name="mnist", node=MnistDataConfig)
     cs.store(group="data", name="cifar10", node=Cifar10DataConfig)
-
-    cs.store(
-        group="hydraout",
-        name="suppress",
-        package="_global_",
-        node={
-            "hydra": {
-                "run": {"dir": "."},
-                "sweep": {"dir": ".", "subdir": "."},
-                "output_subdir": None,
-            }
-        },
-    )
-
-    cs.store(
-        group="runner",
-        name="default",
-        package="_global_",
-        node={
-            "hydra": {
-                "mode": "RUN",  # Workaround for https://github.com/facebookresearch/hydra/issues/2262
-                "sweeper": {"n_jobs": 1},
-            },
-            "output": {"use_tqdm": True},
-            "data": {
-                "trainloader": {"num_workers": 0, "multiprocessing_context": None}
-            },
-        },
-    )
-
-    cs.store(
-        group="runner",
-        name="parallel",
-        package="_global_",
-        node={
-            "defaults": [
-                {"override /hydra/launcher": "submitit_local"},
-            ],
-            "hydra": {
-                "launcher": {
-                    "timeout_min": 600,
-                    "mem_gb": 8,
-                    "gpus_per_node": 1,
-                },
-                "sweeper": {
-                    # Close to ideal on my local PC with 4090.
-                    "n_jobs": 5,
-                },
-                "mode": "MULTIRUN",
-            },
-            # Workers spawned by the dataloader don't get along with submitit/joblib
-            "data": {
-                "trainloader": {"num_workers": 0, "multiprocessing_context": None}
-            },
-            # Submitit logs to files, tqdm spams those files.
-            "output": {"use_tqdm": False},
-        },
-    )
 
     # Can't use structured configs here, might need more investigation?
     cs.store(
@@ -272,50 +212,5 @@ def load_config() -> ConfigStore:
         },
     )
 
-    hyperparameter_opt_params = {
-        # Limit dataset size/training length for faster sweeps
-        "execution.epochs": 10,
-        # Find good learning rate
-        "optimizer.lr": "tag(log, interval(0.05, 0.5))",
-        # Find ideal number of channels
-        "model.conv_channels": "[32, 64, 128], [32, 32, 32], [64, 64, 64], [32, 64]",
-    }
-    cs.store(
-        name="hyperparam_opt",
-        node=Config(
-            defaults=defaults
-            + [
-                {"override /hydra/sweeper": "optuna"},
-                {"override /hydra/sweeper/sampler": "tpe"},
-            ],
-            hydra={
-                "sweeper": {
-                    "params": hyperparameter_opt_params,
-                },
-            },
-        ),
-    )
-
-    sweep_params = {
-        "execution.seed": "42,43,44",
-    }
-    cs.store(
-        name="sweep",
-        node=Config(
-            defaults=defaults
-            + [
-                {"override /hydra/sweeper/sampler": "grid"},
-            ],
-            hydra={
-                "sweeper": {
-                    "params": sweep_params,
-                }
-            },
-        ),
-    )
-
-    cs.store(
-        name="train",
-        node=Config(hydra={"mode": "RUN"}),
-    )
+    cs.store(name="train", node=Config())
     return cs

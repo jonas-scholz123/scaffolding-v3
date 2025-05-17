@@ -12,7 +12,7 @@ from mlbnb.types import Split
 from torch import default_generator
 from torch.utils.data import Dataset
 
-from scaffolding_v3.config import Config, Paths
+from config.config import Config, Paths
 from scaffolding_v3.data.cifar10 import Cifar10Dataset
 from scaffolding_v3.data.mnist import MnistDataset
 

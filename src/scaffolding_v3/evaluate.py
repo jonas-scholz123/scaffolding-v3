@@ -14,7 +14,7 @@ from torch import nn
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
-from scaffolding_v3.config import SKIP_KEYS, Config, Paths, load_config
+from config.config import SKIP_KEYS, Config, Paths, load_config
 from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.util.config_filter import DryRunFilter
 

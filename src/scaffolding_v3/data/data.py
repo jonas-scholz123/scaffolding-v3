@@ -1,9 +1,9 @@
-from mlbnb.types import Split
 import torch
+from hydra.utils import instantiate
+from mlbnb.types import Split
 from torch.utils.data import Dataset
 
-from scaffolding_v3.config import DataConfig
-from hydra.utils import instantiate
+from config.config import DataConfig
 
 
 def make_dataset(
