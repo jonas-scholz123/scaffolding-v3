@@ -23,7 +23,7 @@ logger.configure(handlers=[{"sink": sys.stdout, "level": "INFO"}])
 load_config()
 
 
-@hydra.main(version_base=None, config_name="train", config_path="")
+@hydra.main(version_base=None, config_name="base", config_path="../config")
 def main(eval_cfg: Config) -> None:
     if eval_cfg.execution.device == "cuda":
         torch.set_default_device("cuda")
@@ -35,8 +35,12 @@ def main(eval_cfg: Config) -> None:
 def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
     logger.info("Initializing evaluation dataframe")
     # If dry run requested, only evaluate dry run experiments and vice versa
-    paths = get_experiment_paths(Paths.output, DryRunFilter(eval_cfg.execution.dry_run))
-    df = make_eval_df(paths, load_eval_df(_extract_data_provider_name(eval_cfg)))
+    paths = get_experiment_paths(
+        eval_cfg.paths.output, DryRunFilter(eval_cfg.execution.dry_run)
+    )
+
+    eval_df = load_eval_df(eval_cfg.paths, _extract_data_provider_name(eval_cfg))
+    df = make_eval_df(paths, eval_df)
     if df.empty:
         logger.warning("No experiments to evaluate, exiting")
         return df
@@ -46,8 +50,8 @@ def evaluate_all(eval_cfg: Config) -> pd.DataFrame:
     return df
 
 
-def load_eval_df(data_provider_name: str) -> pd.DataFrame:
-    path = _get_csv_fpath(data_provider_name)
+def load_eval_df(paths: Paths, data_provider_name: str) -> pd.DataFrame:
+    path = _get_csv_fpath(paths, data_provider_name)
     if not path.exists():
         # Include these columns to simplify the code later
         df = pd.DataFrame(columns=["evaluated", "path", "epoch"])  # type: ignore
@@ -56,8 +60,8 @@ def load_eval_df(data_provider_name: str) -> pd.DataFrame:
     return df.set_index("path")
 
 
-def _get_csv_fpath(data_provider_name: str) -> Path:
-    return Paths.output / f"evaluation_{data_provider_name}.csv"
+def _get_csv_fpath(paths: Paths, data_provider_name: str) -> Path:
+    return paths.output / f"evaluation_{data_provider_name}.csv"
 
 
 def _extract_data_provider_name(cfg: Config) -> str:
@@ -82,7 +86,7 @@ def make_eval_df(
         if is_already_evaluated(initial_df, path, trainer_state.epoch):
             continue
 
-        df["path"] = path.root
+        df["path"] = path.name
         df["epoch"] = trainer_state.epoch
         df["val_loss"] = trainer_state.best_val_loss
         df = df.set_index("path")
@@ -111,7 +115,7 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
 
     for path_str in tqdm(df[~df["evaluated"]].index):
         logger.info(f"Evaluating {path_str}")
-        path = ExperimentPath(path_str)  # type: ignore
+        path = ExperimentPath(eval_cfg.paths.output, path_str)
         experiment_cfg: Config = path.get_config()  # type: ignore
         checkpoint_manager = CheckpointManager(path)
 
@@ -134,7 +138,7 @@ def evaluate_remaining(df: pd.DataFrame, eval_cfg: Config) -> pd.DataFrame:
             df.loc[path_str, f"test_{metric_name}"] = metric
         df.loc[path_str, "evaluated"] = True
         if not eval_cfg.execution.dry_run:
-            save_df(df, _extract_data_provider_name(eval_cfg))
+            save_df(df, _extract_data_provider_name(eval_cfg), eval_cfg.paths)
     return df
 
 
@@ -201,9 +205,9 @@ def is_already_evaluated(
     return not matching_rows.empty
 
 
-def save_df(df: pd.DataFrame, data_name: str) -> None:
+def save_df(df: pd.DataFrame, data_name: str, paths: Paths) -> None:
     df = df.reset_index()
-    path = _get_csv_fpath(data_name)
+    path = _get_csv_fpath(paths, data_name)
     df.to_csv(path, index=False)
 
 
@@ -211,7 +215,6 @@ def drop_boring_cols(df: pd.DataFrame):
     """Drop columns that are the same for all experiments"""
     # As strings to deal with unhahsable types.
     droppable = [col for col in df.columns if len(df[col].astype(str).unique()) == 1]
-    logger.warning(f"Dropping columns {droppable}")
     df = df.drop(columns=droppable)
     return df
 

@@ -5,7 +5,7 @@ These are commonly used to find experiment paths that match certain criteria.
 
 from abc import ABC, abstractmethod
 
-from config.config import Config, ModelConfig
+from config.config import Config
 
 
 class ConfigFilter(ABC):
@@ -41,7 +41,7 @@ class ModelFilter(ConfigFilter):
     A filter that checks if the configuration file has a specific model.
     """
 
-    def __init__(self, model_cfg: ModelConfig) -> None:
+    def __init__(self, model_cfg: dict) -> None:
         self.model_cfg = model_cfg
 
     def __call__(self, cfg: Config) -> bool:

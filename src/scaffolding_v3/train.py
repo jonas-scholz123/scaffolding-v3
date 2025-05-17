@@ -33,7 +33,7 @@ load_config()
 TaskType = tuple[torch.Tensor, torch.Tensor]
 
 
-@hydra.main(version_base=None, config_name="train", config_path="")
+@hydra.main(version_base=None, config_name="base", config_path="../config")
 def main(cfg: Config) -> float:
     try:
         _configure_outputs()

@@ -1,0 +1,74 @@
+defaults:
+  - base_cfg
+  - _self_
+  - data: mnist
+  - mode: ???
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  mode: RUN
+  output_subdir: null
+  run:
+    dir: .
+
+paths:
+  root: ${runtime.root}
+  data: ${runtime.root}/_data
+  raw_data: ${runtime.root}/_data/_raw
+  output: ${runtime.root}/_output
+  weights: ${runtime.root}/_weights
+
+loss:
+  _target_: torch.nn.NLLLoss
+
+model:
+  _target_: scaffolding_v3.model.convnet.ConvNet
+  conv_channels: [32, 64]
+  linear_channels: [128]
+  use_dropout: true
+
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.1
+
+output:
+  save_checkpoints: True
+  out_dir: ${runtime.root}/_output
+  wandb_project: scaffolding-v3
+  log_gradients: false
+  gradient_log_freq: 100
+  use_tqdm: false
+  log_level: INFO
+  plot: true
+  sample_indices: [0, 1, 2, 3]
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  step_size: 10
+  gamma: 0.8
+
+execution:
+  device: ${runtime.device}
+  epochs: 15
+  seed: 42
+  start_from: LATEST
+  start_weights: null
+
+data:
+  dataset:
+    paths: ${paths}
+    val_fraction: 0.1
+  cache: false
+  trainloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 64
+    shuffle: true
+    num_workers: 0
+    multiprocessing_context: null
+  testloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 1000
+    shuffle: false
+    num_workers: 0
+    multiprocessing_context: null

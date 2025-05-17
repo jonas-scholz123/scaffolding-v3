@@ -1,0 +1,5 @@
+dataset:
+  _target_: scaffolding_v3.data.cifar10.Cifar10Dataset
+in_channels: 3
+num_classes: 10
+sidelength: 32
