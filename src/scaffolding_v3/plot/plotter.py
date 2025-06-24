@@ -2,7 +2,6 @@
 from typing import Optional, Sequence
 
 import matplotlib.pyplot as plt
-import torch.nn as nn
 from matplotlib.figure import Figure
 from mlbnb.paths import ExperimentPath
 from torch.utils.data import Dataset
@@ -25,7 +24,9 @@ class Plotter:
         self._test_data = test_data
         self._dir = save_to
 
-    def plot_prediction(self, model: nn.Module, epoch: int = 0) -> Optional[Figure]:
+    def plot_prediction(
+        self, model: ClassificationModule, epoch: int = 0
+    ) -> Optional[Figure]:
         fig = self._plot(model)
 
         if fig:

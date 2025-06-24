@@ -1,4 +1,3 @@
-import warnings
 from typing import Optional
 
 import hydra
@@ -6,7 +5,6 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
-from dotenv import load_dotenv
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.metric_logger import WandbLogger
@@ -32,8 +30,6 @@ TaskType = tuple[torch.Tensor, torch.Tensor]
 
 @hydra.main(version_base=None, config_path="../config")
 def main(cfg: Config) -> float:
-    _configure_outputs()
-
     logger.debug(OmegaConf.to_yaml(cfg))
 
     seed_everything(cfg.execution.seed)
@@ -43,15 +39,6 @@ def main(cfg: Config) -> float:
     if cfg.output.use_wandb:
         wandb.finish()
     return trainer.state.best_val_loss
-
-
-def _configure_outputs():
-    load_dotenv()
-
-    # These are all due to deprecation warnings raised within dependencies.
-    warnings.filterwarnings(
-        "ignore", category=DeprecationWarning, module="google.protobuf"
-    )
 
 
 class Trainer:
@@ -160,19 +147,19 @@ class Trainer:
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
-        d = Experiment.from_config(cfg)
+        exp = Experiment.from_config(cfg)
 
         return Trainer(
             cfg,
-            d.model,
-            d.optimizer,
-            d.train_loader,
-            d.val_loader,
-            d.generator,
-            d.experiment_path,
-            d.checkpoint_manager,
-            d.scheduler,
-            d.plotter if cfg.output.plot else None,
+            exp.model,
+            exp.optimizer,
+            exp.train_loader,
+            exp.val_loader,
+            exp.generator,
+            exp.experiment_path,
+            exp.checkpoint_manager,
+            exp.scheduler,
+            exp.plotter if cfg.output.plot else None,
         )
 
     def train_loop(self):
