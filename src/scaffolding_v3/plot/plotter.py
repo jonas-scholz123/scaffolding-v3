@@ -57,7 +57,7 @@ class Plotter:
         )
         for i, task in enumerate(self._sample_tasks):
             img, target = task
-            img = img.to(self._cfg.execution.device)
+            img = img.to(self._cfg.runtime.device)
             # Squeeze and/or unsqueeze to ensure image is C_W_H:
             if img.dim() == 2:
                 img = img.unsqueeze(0).unsqueeze(0)

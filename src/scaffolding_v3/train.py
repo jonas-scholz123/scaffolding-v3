@@ -20,40 +20,29 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from scaffolding_v3.config import (
-    CheckpointOccasion,
-    Config,
-    load_config,
-)
+from scaffolding_v3.config import CheckpointOccasion, Config, init_config
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
 from scaffolding_v3.util.instantiate import TrainDependencies
 
-load_config()
+init_config()
 
 TaskType = tuple[torch.Tensor, torch.Tensor]
 
 
-@hydra.main(version_base=None, config_name="train", config_path="")
+@hydra.main(version_base=None, config_path="../config")
 def main(cfg: Config) -> float:
-    try:
-        _configure_outputs()
+    _configure_outputs()
 
-        logger.debug(OmegaConf.to_yaml(cfg))
+    logger.debug(OmegaConf.to_yaml(cfg))
 
-        if cfg.execution.device == "cuda":
-            torch.set_default_device("cuda")
+    seed_everything(cfg.execution.seed)
 
-        seed_everything(cfg.execution.seed)
-
-        trainer = Trainer.from_config(cfg)
-        trainer.train_loop()
-        if cfg.output.use_wandb:
-            wandb.finish()
-        return trainer.state.best_val_loss
-    except Exception as e:
-        logger.exception("An error occurred during training: {}", e)
-        raise e
+    trainer = Trainer.from_config(cfg)
+    trainer.train_loop()
+    if cfg.output.use_wandb:
+        wandb.finish()
+    return trainer.state.best_val_loss
 
 
 def _configure_outputs():

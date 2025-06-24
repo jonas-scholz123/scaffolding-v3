@@ -1,0 +1,7 @@
+dataset:
+  _target_: "scaffolding_v3.data.mnist.MnistDataset"
+  val_fraction: 0.1
+  paths: ${paths}
+in_channels: 1
+num_classes: 10
+sidelength: 28

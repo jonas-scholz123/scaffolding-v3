@@ -1,0 +1,73 @@
+defaults:
+  - base_cfg
+  - _self_
+  - data: ???
+  - mode: ???
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  mode: RUN
+  output_subdir: null
+  run:
+    dir: .
+
+execution:
+  epochs: 10
+  seed: 42
+  start_from: LATEST
+  start_weights: null
+
+paths:
+  data: ${runtime.root}/_data
+  raw_data: ${runtime.root}/_data/_raw
+  output: ${runtime.root}/_output
+  weights: ${runtime.root}/_weights
+
+model:
+  _target_: scaffolding_v3.model.convnet.ConvNet
+  conv_channels: [32, 64]
+  linear_channels: [128]
+  use_dropout: true
+
+loss:
+  _target_: torch.nn.NLLLoss
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1e-3
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.LinearLR
+  start_factor: 1.0
+  end_factor: 0.1
+
+data:
+  cache: false
+  trainloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 32
+    shuffle: true
+    num_workers: 8
+    prefetch_factor: 2
+    pin_memory: true
+    persistent_workers: true
+  testloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 32
+    shuffle: false
+    num_workers: 8
+    prefetch_factor: 2
+    pin_memory: true
+
+output:
+  save_checkpoints: true
+  out_dir: ${paths.output}
+  use_wandb: false
+  wandb_project: scaffolding-v3
+  log_gradients: false
+  gradient_log_freq: 100
+  use_tqdm: true
+  log_level: INFO
+  plot: true
+  sample_indices: [0, 1, 2, 3]

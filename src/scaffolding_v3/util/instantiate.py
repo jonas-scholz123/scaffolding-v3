@@ -39,9 +39,7 @@ class TrainDependencies:
         This is useful for exploration where you want to have easy access to the
         instantiated objects used for training and evaluation.
         """
-        generator = Generator(device=cfg.execution.device).manual_seed(
-            cfg.execution.seed
-        )
+        generator = Generator(device=cfg.runtime.device).manual_seed(cfg.execution.seed)
 
         logger.info("Instantiating dependencies")
 
@@ -58,6 +56,8 @@ class TrainDependencies:
         test_loader: DataLoader = instantiate(
             cfg.data.testloader, testset, generator=generator
         )
+        print("Train set:", trainset)
+        print("Train loader:", train_loader)
 
         in_channels = cfg.data.in_channels
         num_classes = cfg.data.num_classes
@@ -68,8 +68,8 @@ class TrainDependencies:
             in_channels=in_channels,
             num_classes=num_classes,
             sidelength=sidelength,
-        ).to(cfg.execution.device)
-        loss_fn: Module = instantiate(cfg.loss).to(cfg.execution.device)
+        ).to(cfg.runtime.device)
+        loss_fn: Module = instantiate(cfg.loss).to(cfg.runtime.device)
 
         optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
 
