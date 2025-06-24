@@ -1,10 +1,8 @@
 # %%
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 
 import matplotlib.pyplot as plt
-import torch
 import torch.nn as nn
-from loguru import logger
 from matplotlib.figure import Figure
 from mlbnb.paths import ExperimentPath
 from torch.utils.data import Dataset
@@ -28,26 +26,12 @@ class Plotter:
         self._dir = save_to
 
     def plot_prediction(self, model: nn.Module, epoch: int = 0) -> Optional[Figure]:
-        if self._is_image_classification_task(self._sample_tasks[0]):
-            fig = self._plot_mnist(model)
-        else:
-            logger.warning("Unplottable target type: %s", type(self._sample_tasks[0]))
-            return None
+        fig = self._plot(model)
 
         if fig:
             self._save_or_show(fig, f"{epoch}_prediction.png")
 
-    def _is_image_classification_task(self, task: Any) -> bool:
-        if (
-            isinstance(task, tuple)
-            and len(task) == 2
-            and isinstance(task[0], torch.Tensor)
-            and isinstance(task[1], int)
-        ):
-            return True
-        return False
-
-    def _plot_mnist(self, model: ClassificationModule) -> Optional[Figure]:
+    def _plot(self, model: ClassificationModule) -> Optional[Figure]:
         fig, axs = plt.subplots(
             1, self._num_samples, figsize=(10, 5 * self._num_samples), squeeze=False
         )
