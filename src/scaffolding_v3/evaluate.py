@@ -1,11 +1,11 @@
 import torch
-from torch import nn
 from torch.utils.data.dataloader import DataLoader
+
+from scaffolding_v3.model.classification import ClassificationModule
 
 
 def evaluate(
-    model: nn.Module,
-    loss_fn: nn.Module,
+    model: ClassificationModule,
     val_loader: DataLoader,
     dry_run: bool = False,
 ) -> dict[str, float]:
@@ -17,11 +17,9 @@ def evaluate(
     with torch.no_grad():
         for data, target in val_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data)
-            val_loss += loss_fn(output, target).item()
-            pred = output.argmax(
-                dim=1, keepdim=True
-            )  # get the index of the max log-probability
+            output = model.predict(data)
+            val_loss += model.loss_fn(output, target).item()
+            pred = output.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
 
             if dry_run:

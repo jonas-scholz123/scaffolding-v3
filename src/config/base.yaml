@@ -25,10 +25,15 @@ paths:
   weights: ${runtime.root}/_weights
 
 model:
-  _target_: scaffolding_v3.model.convnet.ConvNet
-  conv_channels: [32, 64]
-  linear_channels: [128]
-  use_dropout: true
+  _target_: scaffolding_v3.model.classification.ClassificationModule
+  backbone:
+    _target_: scaffolding_v3.model.backbone.convnet.ConvNet
+    conv_channels: [32, 64]
+    linear_channels: [128]
+    use_dropout: true
+    in_channels: ${data.in_channels}
+    num_classes: ${data.num_classes}
+    sidelength: ${data.sidelength}
 
 loss:
   _target_: torch.nn.NLLLoss

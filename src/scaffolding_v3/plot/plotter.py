@@ -10,6 +10,7 @@ from mlbnb.paths import ExperimentPath
 from torch.utils.data import Dataset
 
 from scaffolding_v3.config import Config
+from scaffolding_v3.model.classification import ClassificationModule
 
 
 class Plotter:
@@ -46,7 +47,7 @@ class Plotter:
             return True
         return False
 
-    def _plot_mnist(self, model: nn.Module) -> Optional[Figure]:
+    def _plot_mnist(self, model: ClassificationModule) -> Optional[Figure]:
         fig, axs = plt.subplots(
             1, self._num_samples, figsize=(10, 5 * self._num_samples), squeeze=False
         )
@@ -58,7 +59,7 @@ class Plotter:
                 img = img.unsqueeze(0).unsqueeze(0)
             elif img.dim() == 3:
                 img = img
-            pred = model(img.unsqueeze(0)).argmax().item()
+            pred = model.predict(img.unsqueeze(0)).argmax(dim=1).item()
             # Normalize image to [0, 1]:
             img = (img - img.min()) / (img.max() - img.min())
             img = img.permute(1, 2, 0)
@@ -77,6 +78,7 @@ class Plotter:
 
 if __name__ == "__main__":
     from scaffolding_v3.util.instantiate import Experiment, load_config
+
     cfg = Config()
     data = "mnist"
 

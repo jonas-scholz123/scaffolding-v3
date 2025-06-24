@@ -26,7 +26,6 @@ class Experiment:
     val_loader: DataLoader
     test_loader: DataLoader
     optimizer: Optimizer
-    loss_fn: Module
     scheduler: Optional[LRScheduler]
     generator: Generator
     experiment_path: ExperimentPath
@@ -59,17 +58,7 @@ class Experiment:
             cfg.data.testloader, testset, generator=generator
         )
 
-        in_channels = cfg.data.in_channels
-        num_classes = cfg.data.num_classes
-        sidelength = cfg.data.sidelength
-
-        model: Module = instantiate(
-            cfg.model,
-            in_channels=in_channels,
-            num_classes=num_classes,
-            sidelength=sidelength,
-        ).to(cfg.runtime.device)
-        loss_fn: Module = instantiate(cfg.loss).to(cfg.runtime.device)
+        model: Module = instantiate(cfg.model).to(cfg.runtime.device)
 
         optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
 
@@ -92,7 +81,6 @@ class Experiment:
             val_loader=val_loader,
             test_loader=test_loader,
             optimizer=optimizer,
-            loss_fn=loss_fn,
             scheduler=scheduler,
             generator=generator,
             experiment_path=experiment_path,
