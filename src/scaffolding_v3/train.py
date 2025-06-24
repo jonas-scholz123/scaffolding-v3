@@ -23,7 +23,7 @@ from tqdm import tqdm
 from scaffolding_v3.config import CheckpointOccasion, Config, init_config
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
-from scaffolding_v3.util.instantiate import TrainDependencies
+from scaffolding_v3.util.instantiate import Experiment
 
 init_config()
 
@@ -162,7 +162,7 @@ class Trainer:
 
     @staticmethod
     def from_config(cfg: Config) -> "Trainer":
-        d = TrainDependencies.from_config(cfg)
+        d = Experiment.from_config(cfg)
 
         return Trainer(
             cfg,

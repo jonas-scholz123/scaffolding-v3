@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
+from hydra import compose, initialize
 from hydra.utils import instantiate
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager
@@ -12,13 +14,13 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
-from scaffolding_v3.config import Config
+from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.plot.plotter import Plotter
 
 
 @dataclass
-class TrainDependencies:
+class Experiment:
     model: Module
     train_loader: DataLoader
     val_loader: DataLoader
@@ -56,8 +58,6 @@ class TrainDependencies:
         test_loader: DataLoader = instantiate(
             cfg.data.testloader, testset, generator=generator
         )
-        print("Train set:", trainset)
-        print("Train loader:", train_loader)
 
         in_channels = cfg.data.in_channels
         num_classes = cfg.data.num_classes
@@ -86,7 +86,7 @@ class TrainDependencies:
 
         logger.info("Finished instantiating dependencies")
 
-        return TrainDependencies(
+        return Experiment(
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
@@ -99,3 +99,31 @@ class TrainDependencies:
             checkpoint_manager=checkpoint_manager,
             plotter=plotter,
         )
+
+    @staticmethod
+    def from_path(path: str | Path):
+        exp_path = ExperimentPath.from_path(Path(path))
+        cfg = exp_path.get_config()
+        return Experiment.from_config(cfg)
+
+
+def load_config(
+    config_name: str = "base",
+    mode: str = "dev",
+    data: str = "mnist",
+    overrides: Optional[list[str]] = None,
+    config_path: str = "../../config",
+) -> Config:
+    """
+    Load the configuration from the given config name and path.
+    """
+    init_config()
+
+    all_overrides = [f"mode={mode}", f"data={data}"] + (overrides or [])
+
+    with initialize(config_path=config_path, version_base="1.1"):
+        cfg: Config = compose(  # type: ignore
+            config_name=config_name, overrides=all_overrides
+        )
+
+    return cfg

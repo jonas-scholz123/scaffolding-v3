@@ -1,41 +1,12 @@
 from typing import Iterable, Optional
 
-import torch
-from hydra import compose
-from hydra.core.global_hydra import GlobalHydra
-from hydra.initialize import initialize
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager
 from mlbnb.paths import ExperimentPath, get_experiment_paths
 from torch.nn import Module
 
-from scaffolding_v3.config import Config, load_config
+from scaffolding_v3.config import Config
 from scaffolding_v3.util.config_filter import DryRunFilter, ModelFilter
-
-
-def setup(
-    config_name: str = "train",
-    mode: str = "prod",
-    overrides: Optional[list[str]] = None,
-) -> Config:
-    """
-    Constructs a configuration object with the given name and overrides, and sets up the environment.
-
-    NOTE: This is intended as a utility for interactive exploration.
-
-    :param config_name: The name of the configuration to load, defaults to "train"
-    :param mode: The mode to set, defaults to "prod" (prod | dev)
-    :param overrides: A list of additional overrides to apply
-    """
-    load_config()
-    GlobalHydra.instance().clear()
-    initialize(config_path=None, version_base=None)
-
-    all_overrides = ["mode=" + mode] + (overrides or [])
-    cfg: Config = compose(config_name=config_name, overrides=all_overrides)  # type: ignore
-    torch.set_default_device(cfg.execution.device)
-
-    return cfg
 
 
 def load_best_weights(model: Module, cfg: Config) -> None:

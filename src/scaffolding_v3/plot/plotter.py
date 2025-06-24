@@ -4,17 +4,12 @@ from typing import Any, Optional, Sequence
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-from hydra.utils import instantiate
 from loguru import logger
 from matplotlib.figure import Figure
 from mlbnb.paths import ExperimentPath
-from mlbnb.types import Split
-from torch import default_generator
 from torch.utils.data import Dataset
 
-from scaffolding_v3.config import Config, Paths
-from scaffolding_v3.data.cifar10 import Cifar10Dataset
-from scaffolding_v3.data.mnist import MnistDataset
+from scaffolding_v3.config import Config
 
 
 class Plotter:
@@ -81,31 +76,13 @@ class Plotter:
 
 
 if __name__ == "__main__":
+    from scaffolding_v3.util.instantiate import Experiment, load_config
     cfg = Config()
     data = "mnist"
 
-    if data == "cifar":
-        dataset = Cifar10Dataset(Paths(), 0.1, Split.TRAIN, default_generator)
-        plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
+    cfg = load_config(data=data)
+    exp = Experiment.from_config(cfg)
 
-        in_channels = 3
-        num_classes = 10
-        sidelength = 32
-    else:
-        dataset = MnistDataset(Paths(), 0.1, Split.TRAIN, default_generator)
-        plotter = Plotter(cfg, dataset, sample_indices=[0, 1, 2])
+    plotter = Plotter(cfg, exp.val_loader.dataset, sample_indices=[0, 1, 2])
 
-        in_channels = 1
-        num_classes = 10
-        sidelength = 28
-
-    model: nn.Module = instantiate(
-        cfg.model,
-        in_channels=in_channels,
-        num_classes=num_classes,
-        sidelength=sidelength,
-    )
-
-    model = model.to("cuda")
-
-    plotter.plot_prediction(model, 0)
+    plotter.plot_prediction(exp.model, 0)
