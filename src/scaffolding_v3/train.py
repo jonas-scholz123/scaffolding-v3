@@ -13,6 +13,7 @@ from mlbnb.profiler import WandbProfiler
 from mlbnb.rand import seed_everything
 from omegaconf import OmegaConf
 from torch import nn
+from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
@@ -78,6 +79,7 @@ class Trainer:
         self.checkpoint_manager = checkpoint_manager
         self.scheduler = scheduler
         self.plotter = plotter
+        self.grad_scaler = GradScaler(enabled=cfg.execution.use_amp)
 
         self.state = self._load_initial_state()
 
@@ -216,28 +218,19 @@ class Trainer:
         )
         dry_run = self.cfg.execution.dry_run
 
-        if dry_run:
-            # Make sure the tensor dimensions are correct.
-            features, target = next(iter(train_loader))
-            if features.dim() != 4:
-                raise ValueError(
-                    f"Expected a tensor of shape (batch_size, channels, height, width), \
-                    but got {features.shape}"
-                )
-            if target.dim() != 1:
-                msg = (
-                    f"Expected a target of shape (batch_size,), but got {target.shape}"
-                )
-                raise ValueError(msg)
-
         p = self.profiler
         for features, target in p.profiled_iter("dataload", train_loader):
             with p.profile("data.to"):
                 features = features.to(device)
                 target = target.to(device)
 
-            with p.profile("forward"):
-                batch_loss = self.model(features, target)
+            with autocast(
+                device_type=device.type,
+                dtype=torch.float16,
+                enabled=self.cfg.execution.use_amp,
+            ):
+                with p.profile("forward"):
+                    batch_loss = self.model(features, target)
 
             with p.profile("backward"):
                 batch_loss.backward()
@@ -264,11 +257,16 @@ class Trainer:
             )
 
     def val_epoch(self) -> dict[str, float]:
-        return evaluate(
-            self.model,
-            self.val_loader,
-            self.cfg.execution.dry_run,
-        )
+        with autocast(
+            device_type=self.cfg.runtime.device,
+            dtype=torch.float16,
+            enabled=self.cfg.execution.use_amp,
+        ):
+            return evaluate(
+                self.model,
+                self.val_loader,
+                self.cfg.execution.dry_run,
+            )
 
 
 if __name__ == "__main__":

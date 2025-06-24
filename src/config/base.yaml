@@ -15,6 +15,7 @@ hydra:
 execution:
   epochs: 10
   seed: 42
+  use_amp: true
   start_from: LATEST
   start_weights: null
 

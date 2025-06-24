@@ -12,6 +12,7 @@ def evaluate(
     model.eval()
     val_loss = 0
     correct = 0
+    total = 0
     device = next(model.parameters()).device
 
     with torch.no_grad():
@@ -21,10 +22,10 @@ def evaluate(
             val_loss += model.loss_fn(output, target).item()
             pred = output.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
+            total += target.size(0)
 
             if dry_run:
                 break
-
-    val_len = len(val_loader.dataset)  # type: ignore
-    val_loss /= val_len
-    return {"val_loss": val_loss, "val_accuracy": correct / val_len}
+    if total == 0:
+        return {"val_loss": float("inf"), "val_accuracy": 0.0}
+    return {"val_loss": val_loss / total, "val_accuracy": correct / total}

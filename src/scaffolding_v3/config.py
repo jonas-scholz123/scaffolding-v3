@@ -37,6 +37,7 @@ class ExecutionConfig:
     dry_run: bool
     epochs: int
     seed: int
+    use_amp: bool
     start_from: Optional[CheckpointOccasion]
     start_weights: Optional[str]
 
