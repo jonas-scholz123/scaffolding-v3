@@ -1,7 +1,6 @@
 from typing import Optional
 
 import hydra
-import numpy as np
 import torch
 import torch.optim.lr_scheduler
 import wandb
@@ -19,7 +18,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from scaffolding_v3.config import CheckpointOccasion, Config, init_config
+from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
 from scaffolding_v3.util.instantiate import Experiment
@@ -31,11 +30,18 @@ TaskType = tuple[torch.Tensor, torch.Tensor]
 
 @hydra.main(version_base=None, config_path="../config")
 def main(cfg: Config) -> float:
+    if cfg.resume:
+        path = cfg.paths.output / cfg.resume
+        exp = Experiment.from_path(path)
+        cfg = exp.experiment_path.get_config()
+    else:
+        exp = Experiment.from_config(cfg)
+
     logger.debug(OmegaConf.to_yaml(cfg))
 
     seed_everything(cfg.execution.seed)
 
-    trainer = Trainer.from_config(cfg)
+    trainer = Trainer.from_experiment(exp, cfg)
     trainer.train_loop()
     if cfg.output.use_wandb:
         wandb.finish()
@@ -68,6 +74,7 @@ class Trainer:
         checkpoint_manager: CheckpointManager,
         scheduler: Optional[LRScheduler],
         plotter: Optional[Plotter],
+        initial_state: TrainerState,
     ):
         self.cfg = cfg
         self.model = model
@@ -81,7 +88,7 @@ class Trainer:
         self.plotter = plotter
         self.grad_scaler = GradScaler(enabled=cfg.execution.use_amp)
 
-        self.state = self._load_initial_state()
+        self.state = initial_state
 
         self._init_wandb()
         self.metric_logger = WandbLogger(
@@ -89,53 +96,6 @@ class Trainer:
             self.state,
         )
         self.profiler = WandbProfiler(self.metric_logger)
-
-    def _load_initial_state(self) -> TrainerState:
-        start_from = self.cfg.execution.start_from
-
-        initial_state = TrainerState(
-            step=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
-        )
-
-        weights_name = self.cfg.execution.start_weights
-        if weights_name:
-            weights_path = self.cfg.paths.weights / weights_name
-            CheckpointManager.reproduce_model_from_path(self.model, weights_path)
-            logger.info(
-                "Pretrained model loaded from path {}, starting from pretrained.",
-                weights_path,
-            )
-
-        if start_from and self.checkpoint_manager.checkpoint_exists(start_from.value):
-            self.checkpoint_manager.reproduce(
-                start_from.value,
-                self.model,
-                self.optimizer,
-                self.generator,
-                self.scheduler,
-                initial_state,
-            )
-
-            logger.info(
-                "Checkpoint loaded, val loss: {}, epoch: {}, step: {}",
-                initial_state.val_loss,
-                initial_state.epoch,
-                initial_state.step,
-            )
-        else:
-            logger.info("Starting from scratch")
-
-        if initial_state.epoch < self.cfg.execution.epochs:
-            # Checkpoint is at end of epoch, add 1 for next epoch.
-            initial_state.epoch += 1
-            initial_state.step += 1
-        else:
-            logger.info(
-                "Run has concluded (epoch {} / {})",
-                initial_state.epoch,
-                self.cfg.execution.epochs,
-            )
-        return initial_state
 
     def _init_wandb(self) -> None:
         if self.cfg.output.use_wandb:
@@ -148,9 +108,7 @@ class Trainer:
             )
 
     @staticmethod
-    def from_config(cfg: Config) -> "Trainer":
-        exp = Experiment.from_config(cfg)
-
+    def from_experiment(exp: Experiment, cfg: Config) -> "Trainer":
         return Trainer(
             cfg,
             exp.model,
@@ -162,10 +120,19 @@ class Trainer:
             exp.checkpoint_manager,
             exp.scheduler,
             exp.plotter if cfg.output.plot else None,
+            exp.trainer_state,
         )
 
-    def train_loop(self):
+    def train_loop(self) -> None:
         s = self.state
+
+        if s.epoch < self.cfg.execution.epochs:
+            # Checkpoint is at end of epoch, add 1 for next epoch.
+            s.epoch += 1
+        else:
+            logger.info("Run has concluded")
+            return
+
         self._save_config()
 
         if self.cfg.output.use_wandb and self.cfg.output.log_gradients:
@@ -188,12 +155,12 @@ class Trainer:
 
             s.val_loss = val_metrics["val_loss"]
 
-            self.save_checkpoint(CheckpointOccasion.LATEST)
+            self._save_checkpoint("latest")
 
             if s.val_loss < s.best_val_loss:
                 logger.success("New best val loss: {}", s.val_loss)
                 s.best_val_loss = s.val_loss
-                self.save_checkpoint(CheckpointOccasion.BEST)
+                self._save_checkpoint("best")
 
             if self.scheduler:
                 self.scheduler.step()
@@ -245,10 +212,10 @@ class Trainer:
             if dry_run:
                 break
 
-    def save_checkpoint(self, occasion: CheckpointOccasion):
+    def _save_checkpoint(self, occasion: str) -> None:
         if self.cfg.output.save_checkpoints:
             self.checkpoint_manager.save_checkpoint(
-                occasion.value,
+                occasion,
                 self.model,
                 self.optimizer,
                 self.generator,

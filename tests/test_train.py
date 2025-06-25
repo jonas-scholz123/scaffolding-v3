@@ -1,22 +1,24 @@
 """Checks that determinstic config initializes as expected."""
 
-from scaffolding_v3.config import Config, load_config
 from scaffolding_v3.train import Trainer
+from scaffolding_v3.util.instantiate import Experiment, load_config
+import pytest
 
-from hydra import compose, initialize
 
-
-def test_trainer_initialises() -> None:
+@pytest.mark.parametrize("mode", ["prod", "dev"])
+@pytest.mark.parametrize("data", ["mnist", "cifar10"])
+def test_trainer_initialises(mode: str, data: str) -> None:
     """Checks that the config initializes as expected."""
 
     load_config()
-    initialize(config_path=None, version_base=None)
-    # TODO: make this a parameterised test
-    config_name = "train"
-    mode = "prod"
+    config_name = "base"
 
-    all_overrides = ["mode=" + mode]
-    cfg: Config = compose(config_name=config_name, overrides=all_overrides)  # type: ignore
-    cfg.execution.device = "cpu"
+    cfg = load_config(
+        config_name=config_name,
+        mode=mode,
+        data=data,
+        config_path="../../config",
+    )
+    exp = Experiment.from_config(cfg)
 
-    _ = Trainer.from_config(cfg)
+    _ = Trainer.from_experiment(exp, cfg)

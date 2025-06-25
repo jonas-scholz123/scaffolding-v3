@@ -17,7 +17,6 @@ execution:
   seed: 42
   use_amp: true
   start_from: LATEST
-  start_weights: null
 
 paths:
   data: ${runtime.root}/_data

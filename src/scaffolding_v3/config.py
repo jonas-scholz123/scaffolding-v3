@@ -1,16 +1,10 @@
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf.omegaconf import MISSING
-
-
-class CheckpointOccasion(Enum):
-    BEST = "best"
-    LATEST = "latest"
 
 
 @dataclass
@@ -38,8 +32,7 @@ class ExecutionConfig:
     epochs: int
     seed: int
     use_amp: bool
-    start_from: Optional[CheckpointOccasion]
-    start_weights: Optional[str]
+    start_from: Optional[str]
 
 
 @dataclass
@@ -73,6 +66,7 @@ class Config:
     loss: dict = MISSING
     optimizer: dict = MISSING
     scheduler: dict = MISSING
+    resume: Optional[str] = None
 
 
 def _get_runtime_cfg() -> RuntimeConfig:

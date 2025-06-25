@@ -2,10 +2,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 from hydra import compose, initialize
 from hydra.utils import instantiate
 from loguru import logger
-from mlbnb.checkpoint import CheckpointManager
+from mlbnb.checkpoint import CheckpointManager, TrainerState
+from mlbnb.namegen import gen_run_name
 from mlbnb.paths import ExperimentPath
 from mlbnb.types import Split
 from torch import Generator
@@ -31,9 +33,12 @@ class Experiment:
     experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
     plotter: Plotter
+    trainer_state: TrainerState
 
     @staticmethod
-    def from_config(cfg: Config):
+    def from_config(
+        cfg: Config, exp_path: Optional[ExperimentPath] = None
+    ) -> "Experiment":
         """
         Instantiates all dependencies for the training loop.
 
@@ -66,12 +71,39 @@ class Experiment:
             instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
         )
 
-        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output)
+        if not exp_path:
+            path = cfg.paths.output / gen_run_name()
+            exp_path = ExperimentPath.from_path(path)
+        logger.info("Experiment path: {}", str(exp_path))
 
-        logger.info("Experiment path: {}", str(experiment_path))
-        checkpoint_manager = CheckpointManager(experiment_path)
+        checkpoint_manager = CheckpointManager(exp_path)
 
-        plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
+        trainer_state = TrainerState(
+            step=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
+        )
+
+        start_from = cfg.execution.start_from
+
+        if start_from and checkpoint_manager.checkpoint_exists(start_from):
+            checkpoint_manager.reproduce(
+                cfg.execution.start_from,  # ty: ignore
+                model,
+                optimizer,
+                generator,
+                scheduler,
+                trainer_state,
+            )
+
+            logger.info(
+                "Checkpoint loaded, val loss: {}, epoch: {}, step: {}",
+                trainer_state.val_loss,
+                trainer_state.epoch,
+                trainer_state.step,
+            )
+        else:
+            logger.info("Starting from scratch")
+
+        plotter = Plotter(cfg, valset, exp_path, cfg.output.sample_indices)
 
         logger.info("Finished instantiating dependencies")
 
@@ -83,16 +115,18 @@ class Experiment:
             optimizer=optimizer,
             scheduler=scheduler,
             generator=generator,
-            experiment_path=experiment_path,
+            experiment_path=exp_path,
             checkpoint_manager=checkpoint_manager,
             plotter=plotter,
+            trainer_state=trainer_state,
         )
 
     @staticmethod
-    def from_path(path: str | Path):
-        exp_path = ExperimentPath.from_path(Path(path))
+    def from_path(path: str | Path | ExperimentPath) -> "Experiment":
+        if not isinstance(path, ExperimentPath):
+            exp_path = ExperimentPath.from_path(Path(path))
         cfg = exp_path.get_config()
-        return Experiment.from_config(cfg)
+        return Experiment.from_config(cfg, exp_path=exp_path)
 
 
 def load_config(
