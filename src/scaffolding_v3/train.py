@@ -174,7 +174,7 @@ class Trainer:
         logger.success("Finished training")
 
     def _save_config(self) -> None:
-        with self.experiment_path.open("cfg.yaml", "w") as f:
+        with open(self.experiment_path / "cfg.yaml", "w") as f:
             f.write(OmegaConf.to_yaml(self.cfg))
 
     def train_epoch(self) -> None:

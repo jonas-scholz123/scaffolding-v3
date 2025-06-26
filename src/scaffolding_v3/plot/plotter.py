@@ -56,7 +56,7 @@ class Plotter:
 
     def _save_or_show(self, fig: Figure, fname: str) -> None:
         if self._dir:
-            fig.savefig(self._dir.at(fname), bbox_inches="tight", dpi=300)
+            fig.savefig(self._dir / fname, bbox_inches="tight", dpi=300)
         else:
             plt.show()
 
