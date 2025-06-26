@@ -1,31 +1,26 @@
 # %%
 from mlbnb.examples import find_best_examples
 
-from scaffolding_v3.util.explore import load_best_weights
-from scaffolding_v3.util.instantiate import Experiment, load_config
+from scaffolding_v3.util.instantiate import Experiment
 
-cfg = load_config(
-    mode="prod",
-    overrides=[
-        "data.testloader.batch_size=1",
-        "data.testloader.num_workers=0",
-        "data.testloader.prefetch_factor=null",
-    ],
-)
-d = Experiment.from_config(cfg)
-load_best_weights(d.model, cfg)
+path = "../../_output/2025-06-25_13-59_gentle_aardvark"
+exp = Experiment.from_path(path, checkpoint="best")
 
 
 def compute_task_loss(task: tuple) -> float:
+    device = exp.cfg.runtime.device
     X, y = task
-    X = X.to(cfg.runtime.device)
-    y = y.to(cfg.runtime.device)
-    y_hat = d.model(X)
-    return d.loss_fn(y_hat, y)
+    X = X.to(device)
+    y = y.to(device)
+    return exp.model(X, y).item()
 
 
-tasks, losses = find_best_examples(d.val_loader, compute_task_loss, 4, mode="hardest")
+dataloader = exp.val_loader
+# Avoid multiprocessing issues in Jupyter notebooks
+dataloader.num_workers = 0
 
-d.plotter._sample_tasks = [(t[0][0], int(t[1][0])) for t in tasks]
-d.plotter._num_samples = 4
-d.plotter.plot_prediction(d.model)
+tasks, losses = find_best_examples(dataloader, compute_task_loss, 4, mode="hardest")
+
+exp.plotter._sample_tasks = [(t[0][0], int(t[1][0])) for t in tasks]
+exp.plotter._num_samples = 4
+exp.plotter.plot_prediction(exp.model)

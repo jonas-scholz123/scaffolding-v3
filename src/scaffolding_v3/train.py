@@ -28,7 +28,7 @@ init_config()
 TaskType = tuple[torch.Tensor, torch.Tensor]
 
 
-@hydra.main(version_base=None, config_path="../config")
+@hydra.main(version_base=None, config_path="../config", config_name="base")
 def main(cfg: Config) -> float:
     if cfg.resume:
         path = cfg.paths.output / cfg.resume

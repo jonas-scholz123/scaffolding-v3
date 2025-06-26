@@ -23,6 +23,7 @@ from scaffolding_v3.plot.plotter import Plotter
 
 @dataclass
 class Experiment:
+    cfg: Config
     model: Module
     train_loader: DataLoader
     val_loader: DataLoader
@@ -37,7 +38,9 @@ class Experiment:
 
     @staticmethod
     def from_config(
-        cfg: Config, exp_path: Optional[ExperimentPath] = None
+        cfg: Config,
+        exp_path: Optional[ExperimentPath] = None,
+        checkpoint: Optional[str] = None,
     ) -> "Experiment":
         """
         Instantiates all dependencies for the training loop.
@@ -82,7 +85,7 @@ class Experiment:
             step=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
         )
 
-        start_from = cfg.execution.start_from
+        start_from = cfg.execution.start_from if not checkpoint else checkpoint
 
         if start_from and checkpoint_manager.checkpoint_exists(start_from):
             checkpoint_manager.reproduce(
@@ -108,6 +111,7 @@ class Experiment:
         logger.info("Finished instantiating dependencies")
 
         return Experiment(
+            cfg=cfg,
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
@@ -122,11 +126,13 @@ class Experiment:
         )
 
     @staticmethod
-    def from_path(path: str | Path | ExperimentPath) -> "Experiment":
+    def from_path(
+        path: str | Path | ExperimentPath, checkpoint: str = "best"
+    ) -> "Experiment":
         if not isinstance(path, ExperimentPath):
             exp_path = ExperimentPath.from_path(Path(path))
         cfg = exp_path.get_config()
-        return Experiment.from_config(cfg, exp_path=exp_path)
+        return Experiment.from_config(cfg, exp_path=exp_path, checkpoint=checkpoint)
 
 
 def load_config(

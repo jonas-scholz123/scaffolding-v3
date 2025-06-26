@@ -15,3 +15,7 @@ class ClassificationModule(nn.Module):
 
     def predict(self, x: torch.Tensor) -> torch.Tensor:
         return self.backbone_model(x)
+
+    def predict_class(self, x: torch.Tensor) -> torch.Tensor:
+        y_pred = self.predict(x)
+        return torch.argmax(y_pred, dim=1)
