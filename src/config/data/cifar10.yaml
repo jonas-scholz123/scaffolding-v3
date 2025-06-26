@@ -1,0 +1,7 @@
+dataset:
+  _target_: "scaffolding_v3.data.cifar10.Cifar10Dataset"
+  val_fraction: 0.1
+  paths: ${paths}
+in_channels: 3
+num_classes: 10
+sidelength: 32

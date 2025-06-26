@@ -77,9 +77,8 @@ class ConvNet(nn.Module):
         linear_blocks.append(nn.Linear(linear_channels[-1], num_classes))
         return nn.Sequential(*linear_blocks)
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         x = self.convs(x)
         x = torch.flatten(x, 1)
         x = self.linears(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+        return F.log_softmax(x, dim=1)

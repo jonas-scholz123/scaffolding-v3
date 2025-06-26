@@ -1,0 +1,6 @@
+# @package _global_
+
+execution:
+  dry_run: true
+output:
+  use_wandb: false

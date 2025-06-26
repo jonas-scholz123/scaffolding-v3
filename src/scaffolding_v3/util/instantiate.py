@@ -1,9 +1,13 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
+import numpy as np
+from hydra import compose, initialize
 from hydra.utils import instantiate
 from loguru import logger
-from mlbnb.checkpoint import CheckpointManager
+from mlbnb.checkpoint import CheckpointManager, TrainerState
+from mlbnb.namegen import gen_run_name
 from mlbnb.paths import ExperimentPath
 from mlbnb.types import Split
 from torch import Generator
@@ -12,36 +16,39 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
-from scaffolding_v3.config import Config
+from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.plot.plotter import Plotter
 
 
 @dataclass
-class TrainDependencies:
+class Experiment:
+    cfg: Config
     model: Module
     train_loader: DataLoader
     val_loader: DataLoader
     test_loader: DataLoader
     optimizer: Optimizer
-    loss_fn: Module
     scheduler: Optional[LRScheduler]
     generator: Generator
     experiment_path: ExperimentPath
     checkpoint_manager: CheckpointManager
     plotter: Plotter
+    trainer_state: TrainerState
 
     @staticmethod
-    def from_config(cfg: Config):
+    def from_config(
+        cfg: Config,
+        exp_path: Optional[ExperimentPath] = None,
+        checkpoint: Optional[str] = None,
+    ) -> "Experiment":
         """
         Instantiates all dependencies for the training loop.
 
         This is useful for exploration where you want to have easy access to the
         instantiated objects used for training and evaluation.
         """
-        generator = Generator(device=cfg.execution.device).manual_seed(
-            cfg.execution.seed
-        )
+        generator = Generator(device=cfg.runtime.device).manual_seed(cfg.execution.seed)
 
         logger.info("Instantiating dependencies")
 
@@ -59,17 +66,7 @@ class TrainDependencies:
             cfg.data.testloader, testset, generator=generator
         )
 
-        in_channels = cfg.data.in_channels
-        num_classes = cfg.data.num_classes
-        sidelength = cfg.data.sidelength
-
-        model: Module = instantiate(
-            cfg.model,
-            in_channels=in_channels,
-            num_classes=num_classes,
-            sidelength=sidelength,
-        ).to(cfg.execution.device)
-        loss_fn: Module = instantiate(cfg.loss).to(cfg.execution.device)
+        model: Module = instantiate(cfg.model).to(cfg.runtime.device)
 
         optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
 
@@ -77,25 +74,84 @@ class TrainDependencies:
             instantiate(cfg.scheduler, optimizer) if cfg.scheduler else None
         )
 
-        experiment_path = ExperimentPath.from_config(cfg, cfg.paths.output)
+        if not exp_path:
+            path = cfg.paths.output / gen_run_name()
+            exp_path = ExperimentPath.from_path(path)
+        logger.info("Experiment path: {}", str(exp_path))
 
-        logger.info("Experiment path: {}", str(experiment_path))
-        checkpoint_manager = CheckpointManager(experiment_path)
+        checkpoint_manager = CheckpointManager(exp_path)
 
-        plotter = Plotter(cfg, valset, experiment_path, cfg.output.sample_indices)
+        trainer_state = TrainerState(
+            step=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
+        )
+
+        start_from = cfg.execution.start_from if not checkpoint else checkpoint
+
+        if start_from and checkpoint_manager.checkpoint_exists(start_from):
+            checkpoint_manager.reproduce(
+                cfg.execution.start_from,  # ty: ignore
+                model,
+                optimizer,
+                generator,
+                scheduler,
+                trainer_state,
+            )
+
+            logger.info(
+                "Checkpoint loaded, val loss: {}, epoch: {}, step: {}",
+                trainer_state.val_loss,
+                trainer_state.epoch,
+                trainer_state.step,
+            )
+        else:
+            logger.info("Starting from scratch")
+
+        plotter = Plotter(cfg, valset, exp_path, cfg.output.sample_indices)
 
         logger.info("Finished instantiating dependencies")
 
-        return TrainDependencies(
+        return Experiment(
+            cfg=cfg,
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
             test_loader=test_loader,
             optimizer=optimizer,
-            loss_fn=loss_fn,
             scheduler=scheduler,
             generator=generator,
-            experiment_path=experiment_path,
+            experiment_path=exp_path,
             checkpoint_manager=checkpoint_manager,
             plotter=plotter,
+            trainer_state=trainer_state,
         )
+
+    @staticmethod
+    def from_path(
+        path: str | Path | ExperimentPath, checkpoint: str = "best"
+    ) -> "Experiment":
+        if not isinstance(path, ExperimentPath):
+            exp_path = ExperimentPath.from_path(Path(path))
+        cfg = exp_path.get_config()
+        return Experiment.from_config(cfg, exp_path=exp_path, checkpoint=checkpoint)
+
+
+def load_config(
+    config_name: str = "base",
+    mode: str = "dev",
+    data: str = "mnist",
+    overrides: Optional[list[str]] = None,
+    config_path: str = "../../config",
+) -> Config:
+    """
+    Load the configuration from the given config name and path.
+    """
+    init_config()
+
+    all_overrides = [f"mode={mode}", f"data={data}"] + (overrides or [])
+
+    with initialize(config_path=config_path, version_base="1.1"):
+        cfg: Config = compose(  # type: ignore
+            config_name=config_name, overrides=all_overrides
+        )
+
+    return cfg
