@@ -48,7 +48,7 @@ class Experiment:
         This is useful for exploration where you want to have easy access to the
         instantiated objects used for training and evaluation.
         """
-        generator = Generator(device=cfg.runtime.device).manual_seed(cfg.execution.seed)
+        generator = Generator(device="cpu").manual_seed(cfg.execution.seed)
 
         logger.info("Instantiating dependencies")
 
@@ -131,7 +131,7 @@ class Experiment:
     ) -> "Experiment":
         if not isinstance(path, ExperimentPath):
             exp_path = ExperimentPath.from_path(Path(path))
-        cfg = exp_path.get_config()
+        cfg: Config = exp_path.get_config()  # type: ignore
         return Experiment.from_config(cfg, exp_path=exp_path, checkpoint=checkpoint)
 
 

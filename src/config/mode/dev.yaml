@@ -4,3 +4,5 @@ execution:
   dry_run: true
 output:
   use_wandb: false
+paths:
+  output: ${runtime.root}/_output/dev

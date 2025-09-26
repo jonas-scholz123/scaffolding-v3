@@ -1,8 +1,9 @@
 """Checks that determinstic config initializes as expected."""
 
+import pytest
+
 from scaffolding_v3.train import Trainer
 from scaffolding_v3.util.instantiate import Experiment, load_config
-import pytest
 
 
 @pytest.mark.parametrize("mode", ["prod", "dev"])
@@ -17,6 +18,8 @@ def test_trainer_initialises(mode: str, data: str) -> None:
         config_name=config_name,
         mode=mode,
         data=data,
+        # For remote testing, disable WANDB.
+        overrides=["output.use_wandb=False"],
         config_path="../../config",
     )
     exp = Experiment.from_config(cfg)
