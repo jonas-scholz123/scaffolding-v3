@@ -1,6 +1,7 @@
 # %%
 from mlbnb.examples import find_best_examples
 
+from scaffolding_v3.model.classification import ClassificationModule
 from scaffolding_v3.util.instantiate import Experiment
 
 path = "../../_output/2025-06-25_13-59_gentle_aardvark"
@@ -23,4 +24,6 @@ tasks, losses = find_best_examples(dataloader, compute_task_loss, 4, mode="harde
 
 exp.plotter._sample_tasks = [(t[0][0], int(t[1][0])) for t in tasks]
 exp.plotter._num_samples = 4
+
+assert isinstance(exp.model, ClassificationModule)
 exp.plotter.plot_prediction(exp.model)

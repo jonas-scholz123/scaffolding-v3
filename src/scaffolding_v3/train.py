@@ -33,7 +33,7 @@ def main(cfg: Config) -> float:
     if cfg.resume:
         path = cfg.paths.output / cfg.resume
         exp = Experiment.from_path(path)
-        cfg = exp.experiment_path.get_config()
+        cfg = exp.experiment_path.get_config() # type: ignore
     else:
         exp = Experiment.from_config(cfg)
 

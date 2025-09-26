@@ -131,7 +131,7 @@ class Experiment:
     ) -> "Experiment":
         if not isinstance(path, ExperimentPath):
             exp_path = ExperimentPath.from_path(Path(path))
-        cfg = exp_path.get_config()
+        cfg: Config = exp_path.get_config() # type: ignore
         return Experiment.from_config(cfg, exp_path=exp_path, checkpoint=checkpoint)
 
 

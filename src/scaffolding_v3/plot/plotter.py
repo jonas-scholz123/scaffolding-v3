@@ -72,4 +72,6 @@ if __name__ == "__main__":
 
     plotter = Plotter(cfg, exp.val_loader.dataset, sample_indices=[0, 1, 2])
 
+    assert isinstance(exp.model, ClassificationModule)
+
     plotter.plot_prediction(exp.model, 0)
