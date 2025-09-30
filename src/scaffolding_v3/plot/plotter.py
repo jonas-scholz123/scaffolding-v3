@@ -25,12 +25,12 @@ class Plotter:
         self._dir = save_to
 
     def plot_prediction(
-        self, model: ClassificationModule, epoch: int = 0
+        self, model: ClassificationModule, samples_seen: int = 0
     ) -> Optional[Figure]:
         fig = self._plot(model)
 
         if fig:
-            self._save_or_show(fig, f"{epoch}_prediction.png")
+            self._save_or_show(fig, f"{samples_seen}_prediction.png")
 
     def _plot(self, model: ClassificationModule) -> Optional[Figure]:
         fig, axs = plt.subplots(

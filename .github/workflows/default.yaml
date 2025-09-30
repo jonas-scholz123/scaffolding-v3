@@ -33,7 +33,7 @@ jobs:
           pdm config use_uv true
 
       - name: Install dependencies with PDM
-        run: pdm install
+        run: pdm install --prod
 
       - name: Check formatting with Ruff
         run: pdm run ruff format --check src tests

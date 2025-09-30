@@ -7,6 +7,7 @@ multirun/
 .zed/
 *.DS_Store
 *.code-workspace
+pdm.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

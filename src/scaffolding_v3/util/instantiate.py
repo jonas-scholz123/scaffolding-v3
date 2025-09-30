@@ -82,7 +82,7 @@ class Experiment:
         checkpoint_manager = CheckpointManager(exp_path)
 
         trainer_state = TrainerState(
-            step=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
+            step=0, samples_seen=0, epoch=0, best_val_loss=np.inf, val_loss=np.inf
         )
 
         start_from = cfg.execution.start_from if not checkpoint else checkpoint
@@ -98,10 +98,9 @@ class Experiment:
             )
 
             logger.info(
-                "Checkpoint loaded, val loss: {}, epoch: {}, step: {}",
+                "Checkpoint loaded, val loss: {}, samples seen: {}",
                 trainer_state.val_loss,
-                trainer_state.epoch,
-                trainer_state.step,
+                trainer_state.samples_seen,
             )
         else:
             logger.info("Starting from scratch")

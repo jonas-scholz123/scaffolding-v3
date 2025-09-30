@@ -29,7 +29,7 @@ class DataConfig:
 @dataclass
 class ExecutionConfig:
     dry_run: bool
-    epochs: int
+    num_train_samples: int
     seed: int
     use_amp: bool
     start_from: Optional[str]
@@ -42,7 +42,10 @@ class OutputConfig:
     use_wandb: bool
     wandb_project: str
     log_gradients: bool
-    gradient_log_freq: int
+    gradient_log_frequency: int
+    checkpoint_frequency: int
+    val_frequency: int
+    plot_frequency: int
     use_tqdm: bool
     log_level: str
     plot: bool

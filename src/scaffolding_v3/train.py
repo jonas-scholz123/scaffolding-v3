@@ -6,6 +6,7 @@ import torch.optim.lr_scheduler
 import wandb
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
+from mlbnb.iter import StepIterator
 from mlbnb.metric_logger import WandbLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.profiler import WandbProfiler
@@ -87,6 +88,7 @@ class Trainer:
         self.scheduler = scheduler
         self.plotter = plotter
         self.grad_scaler = GradScaler(enabled=cfg.execution.use_amp)
+        self.device = torch.device(cfg.runtime.device)
 
         self.state = initial_state
 
@@ -126,10 +128,7 @@ class Trainer:
     def train_loop(self) -> None:
         s = self.state
 
-        if s.epoch < self.cfg.execution.epochs:
-            # Checkpoint is at end of epoch, add 1 for next epoch.
-            s.epoch += 1
-        else:
+        if s.samples_seen >= self.cfg.execution.num_train_samples:
             logger.info("Run has concluded")
             return
 
@@ -144,73 +143,83 @@ class Trainer:
 
         logger.info("Starting training")
 
-        if self.plotter:
-            self.plotter.plot_prediction(self.model)
+        step_iterator = StepIterator(
+            self.train_loader,
+            steps=self.cfg.execution.num_train_samples,
+            step_per_iter=self.cfg.data.trainloader.batch_size,
+        )
 
-        while s.epoch <= self.cfg.execution.epochs:
-            logger.info("Starting epoch {} / {}", s.epoch, self.cfg.execution.epochs)
-            self.train_epoch()
-            val_metrics = self.val_epoch()
-            self.metric_logger.log(val_metrics)
+        train_iter = tqdm(step_iterator, disable=not self.cfg.output.use_tqdm)
 
-            s.val_loss = val_metrics["val_loss"]
+        self.model.train()
+        dry_run = self.cfg.execution.dry_run
 
-            self._save_checkpoint("latest")
+        for batch in self.profiler.profiled_iter("dataload", train_iter):
+            self._train_step(batch)
 
-            if s.val_loss < s.best_val_loss:
-                logger.success("New best val loss: {}", s.val_loss)
-                s.best_val_loss = s.val_loss
-                self._save_checkpoint("best")
+            if self.state.step % self.cfg.output.val_frequency == 0:
+                self._validation_step()
 
+            if self.state.step % self.cfg.output.checkpoint_frequency == 0:
+                self._save_checkpoint("latest")
+
+            if self.plotter and self.state.step % self.cfg.output.plot_frequency == 0:
+                self.plotter.plot_prediction(self.model, s.samples_seen)
+
+            if dry_run:
+                break
+
+            s.step += 1
+
+        logger.success("Finished training")
+
+    def _train_step(self, batch: tuple[torch.Tensor, torch.Tensor]) -> None:
+        p = self.profiler
+
+        features, target = batch
+        with p.profile("data.to"):
+            features = features.to(self.device)
+            target = target.to(self.device)
+
+        with autocast(
+            device_type=self.device.type,
+            dtype=torch.float16,
+            enabled=self.cfg.execution.use_amp,
+        ):
+            with p.profile("forward"):
+                batch_loss = self.model(features, target)
+
+        with p.profile("backward"):
+            batch_loss.backward()
+            self.metric_logger.log({"train_loss": batch_loss.item()})
+
+        with p.profile("optimizer.step"):
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+        with p.profile("scheduler.step"):
             if self.scheduler:
                 self.scheduler.step()
 
-            if self.plotter:
-                self.plotter.plot_prediction(self.model, s.epoch)
+        self.state.samples_seen += features.size(0)
 
-            s.epoch += 1
-            s.best_val_loss = s.best_val_loss
+    def _validation_step(self) -> None:
+        s = self.state
 
-        logger.success("Finished training")
+        self.model.eval()
+        val_metrics = self.val_epoch()
+        s.val_loss = val_metrics["val_loss"]
+        self.metric_logger.log(val_metrics)
+
+        if s.val_loss < s.best_val_loss:
+            logger.success("New best val loss: {}", s.val_loss)
+            s.best_val_loss = s.val_loss
+            self._save_checkpoint("best")
+        self.model.train()
 
     def _save_config(self) -> None:
         with open(self.experiment_path / "cfg.yaml", "w") as f:
             f.write(OmegaConf.to_yaml(self.cfg))
-
-    def train_epoch(self) -> None:
-        self.model.train()
-        device = next(self.model.parameters()).device
-        train_loader: tqdm[TaskType] = tqdm(
-            self.train_loader, disable=not self.cfg.output.use_tqdm
-        )
-        dry_run = self.cfg.execution.dry_run
-
-        p = self.profiler
-        for features, target in p.profiled_iter("dataload", train_loader):
-            with p.profile("data.to"):
-                features = features.to(device)
-                target = target.to(device)
-
-            with autocast(
-                device_type=device.type,
-                dtype=torch.float16,
-                enabled=self.cfg.execution.use_amp,
-            ):
-                with p.profile("forward"):
-                    batch_loss = self.model(features, target)
-
-            with p.profile("backward"):
-                batch_loss.backward()
-                self.metric_logger.log({"train_loss": batch_loss.item()})
-
-            with p.profile("optimizer.step"):
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-
-            self.state.step += 1
-
-            if dry_run:
-                break
 
     def _save_checkpoint(self, occasion: str) -> None:
         if self.cfg.output.save_checkpoints:
