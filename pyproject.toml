@@ -1,7 +1,7 @@
 [project]
 name = "scaffolding-v3"
 version = "0.1.0"
-description = "Default template for PDM package"
+description = "A Scaffolding for Quickstarting your ML Experiments"
 authors = [{ name = "Jonas Scholz", email = "jonas.scholz123@gmail.com" }]
 dependencies = [
     "torch>=2.4.0",
@@ -30,3 +30,8 @@ license = { text = "MIT" }
 
 [tool.ty.environment]
 root = ["./src"]
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "-e file:///${PROJECT_ROOT}/../mlbnb#egg=mlbnb",
+]
