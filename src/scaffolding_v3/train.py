@@ -1,9 +1,11 @@
+import sys
 from typing import Optional
 
-import hydra
 import torch
+import torch.multiprocessing as mp
 import torch.optim.lr_scheduler
 import wandb
+from hydra import compose, initialize
 from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.iter import StepIterator
@@ -11,9 +13,10 @@ from mlbnb.metric_logger import WandbLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.profiler import WandbProfiler
 from mlbnb.rand import seed_everything
+from model.classification import ClassificationModule
 from omegaconf import OmegaConf
-from torch import nn
 from torch.amp import GradScaler, autocast
+from torch.distributed import destroy_process_group
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
@@ -22,6 +25,7 @@ from tqdm import tqdm
 from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.evaluate import evaluate
 from scaffolding_v3.plot.plotter import Plotter
+from scaffolding_v3.util.ddp import ddp_setup
 from scaffolding_v3.util.instantiate import Experiment
 
 init_config()
@@ -29,14 +33,44 @@ init_config()
 TaskType = tuple[torch.Tensor, torch.Tensor]
 
 
-@hydra.main(version_base=None, config_path="../config", config_name="base")
-def main(cfg: Config) -> float:
+def main(gpu_id: int | None, world_size: int) -> float:
+    overrides = sys.argv[1:]
+
+    # Initialise hydra:
+    with initialize(config_path="../config", version_base=None):
+        cfg: Config = compose(config_name="base", overrides=overrides)  # type: ignore
+
+    multigpu = gpu_id is not None
+    try:
+        if multigpu:
+            logger.info(f"Using multi-GPU training on {world_size} GPUs")
+            ddp_setup(gpu_id, world_size)  # type: ignore
+
+            # Only save from one process during multi-GPU training
+            cfg.output.save_checkpoints &= gpu_id == 0
+            cfg.output.use_tqdm &= gpu_id == 0
+            cfg.output.plot &= gpu_id == 0
+            cfg.output.use_wandb &= gpu_id == 0
+        else:
+            logger.info("Using single-device training")
+
+        return train_loop(cfg, gpu_id)
+    except Exception as e:
+        raise e
+    finally:
+        if multigpu:
+            destroy_process_group()
+        if cfg.output.use_wandb:
+            wandb.finish()
+
+
+def train_loop(cfg: Config, gpu_id: int | None = None):
     if cfg.resume:
         path = cfg.paths.output / cfg.resume
-        exp = Experiment.from_path(path)
-        cfg = exp.experiment_path.get_config()  # type: ignore
-    else:
-        exp = Experiment.from_config(cfg)
+        path = ExperimentPath.from_path(path)
+        cfg = path.get_config()  # type: ignore
+
+    exp = Experiment.from_config(cfg, gpu_id=gpu_id)
 
     logger.debug(OmegaConf.to_yaml(cfg))
 
@@ -44,14 +78,12 @@ def main(cfg: Config) -> float:
 
     trainer = Trainer.from_experiment(exp, cfg)
     trainer.train_loop()
-    if cfg.output.use_wandb:
-        wandb.finish()
     return trainer.state.best_val_loss
 
 
 class Trainer:
     cfg: Config
-    model: torch.nn.Module
+    model: ClassificationModule
     optimizer: Optimizer
     train_loader: DataLoader[TaskType]
     val_loader: DataLoader[TaskType]
@@ -66,7 +98,7 @@ class Trainer:
     def __init__(
         self,
         cfg: Config,
-        model: nn.Module,
+        model: ClassificationModule,
         optimizer: Optimizer,
         train_loader: DataLoader,
         val_loader: DataLoader,
@@ -238,12 +270,17 @@ class Trainer:
             dtype=torch.float16,
             enabled=self.cfg.execution.use_amp,
         ):
-            return evaluate(
+            result = evaluate(
                 self.model,
                 self.val_loader,
                 self.cfg.execution.dry_run,
             )
+            return result
 
 
 if __name__ == "__main__":
-    main()
+    world_size = torch.cuda.device_count()
+    if world_size <= 1:
+        main(gpu_id=None, world_size=1)
+    else:
+        mp.spawn(main, args=(world_size,), nprocs=world_size)

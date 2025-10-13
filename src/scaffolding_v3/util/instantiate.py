@@ -10,11 +10,13 @@ from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.namegen import gen_run_name
 from mlbnb.paths import ExperimentPath
 from mlbnb.types import Split
+from model.classification import ClassificationModule
 from torch import Generator
 from torch.nn import Module
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler, RandomSampler
 
 from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.data.data import make_dataset
@@ -24,7 +26,7 @@ from scaffolding_v3.plot.plotter import Plotter
 @dataclass
 class Experiment:
     cfg: Config
-    model: Module
+    model: ClassificationModule
     train_loader: DataLoader
     val_loader: DataLoader
     test_loader: DataLoader
@@ -41,6 +43,7 @@ class Experiment:
         cfg: Config,
         exp_path: Optional[ExperimentPath] = None,
         checkpoint: Optional[str] = None,
+        gpu_id: int | None = None,
     ) -> "Experiment":
         """
         Instantiates all dependencies for the training loop.
@@ -56,17 +59,32 @@ class Experiment:
         valset = make_dataset(cfg.data, Split.VAL, generator)
         testset = make_dataset(cfg.data, Split.TEST, generator)
 
+        if gpu_id is not None:
+            train_sampler = DistributedSampler(trainset, shuffle=True)
+            val_sampler = DistributedSampler(valset, shuffle=False)
+            test_sampler = DistributedSampler(testset, shuffle=False)
+        else:
+            train_sampler = RandomSampler(trainset, generator=generator)  # ty: ignore
+            val_sampler = None
+            test_sampler = None
+
         train_loader: DataLoader = instantiate(
-            cfg.data.trainloader, trainset, generator=generator
+            cfg.data.trainloader,
+            trainset,
+            generator=generator,
+            sampler=train_sampler,
         )
         val_loader: DataLoader = instantiate(
-            cfg.data.testloader, valset, generator=generator
+            cfg.data.testloader, valset, generator=generator, sampler=val_sampler
         )
         test_loader: DataLoader = instantiate(
-            cfg.data.testloader, testset, generator=generator
+            cfg.data.testloader, testset, generator=generator, sampler=test_sampler
         )
 
         model: Module = instantiate(cfg.model).to(cfg.runtime.device)
+
+        if gpu_id is not None:
+            model.backbone_model = DDP(model.backbone_model, device_ids=[gpu_id])
 
         optimizer: Optimizer = instantiate(cfg.optimizer, model.parameters())
 
