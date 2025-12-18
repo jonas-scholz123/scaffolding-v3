@@ -9,6 +9,7 @@ from loguru import logger
 from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.namegen import gen_run_name
 from mlbnb.paths import ExperimentPath
+from mlbnb.rand import seed_everything
 from mlbnb.types import Split
 from torch import Generator
 from torch.nn import Module
@@ -17,9 +18,9 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, DistributedSampler, RandomSampler
 
-from scaffolding_v3.model.classification import ClassificationModule
 from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.data.data import make_dataset
+from scaffolding_v3.model.classification import ClassificationModule
 from scaffolding_v3.plot.plotter import Plotter
 
 
@@ -52,6 +53,7 @@ class Experiment:
         instantiated objects used for training and evaluation.
         """
         seed = cfg.execution.seed
+        seed_everything(cfg.execution.seed)
         generator = Generator(device="cpu").manual_seed(seed)
 
         logger.info("Instantiating dependencies")

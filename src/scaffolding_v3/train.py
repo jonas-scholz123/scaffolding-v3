@@ -13,7 +13,6 @@ from mlbnb.iter import StepIterator
 from mlbnb.metric_logger import WandbLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.profiler import WandbProfiler
-from mlbnb.rand import seed_everything
 from omegaconf import OmegaConf
 from torch.amp import GradScaler, autocast
 from torch.distributed import destroy_process_group  # type: ignore
@@ -74,8 +73,6 @@ def train_loop(cfg: Config, gpu_id: int | None = None) -> float:
     exp = Experiment.from_config(cfg, gpu_id=gpu_id)
 
     logger.debug(OmegaConf.to_yaml(cfg))
-
-    seed_everything(cfg.execution.seed)
 
     trainer = Trainer.from_experiment(exp, cfg)
     trainer.train_loop()

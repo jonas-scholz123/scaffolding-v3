@@ -30,7 +30,7 @@ class ConvNet(nn.Module):
         self, in_channels: int, sidelength: int, convs: nn.Sequential
     ) -> int:
         # Create a random tensor to get the output size of the convolutional layers
-        x = torch.rand((1, in_channels, sidelength, sidelength))
+        x = torch.zeros((1, in_channels, sidelength, sidelength))
         x = convs(x)
         return x.numel()
 
