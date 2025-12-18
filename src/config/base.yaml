@@ -71,10 +71,10 @@ output:
   use_wandb: false
   wandb_project: scaffolding-v3
   log_gradients: false
-  gradient_log_frequency: 1000
-  checkpoint_frequency: 1000
-  val_frequency: 1000
-  plot_frequency: 1000
+  gradient_log_frequency: 20000
+  checkpoint_frequency: 20000
+  val_frequency: 20000
+  plot_frequency: 20000
   use_tqdm: true
   log_level: INFO
   plot: true

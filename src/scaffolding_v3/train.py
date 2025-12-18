@@ -1,3 +1,4 @@
+import math
 import sys
 from typing import Optional
 
@@ -13,10 +14,9 @@ from mlbnb.metric_logger import WandbLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.profiler import WandbProfiler
 from mlbnb.rand import seed_everything
-from model.classification import ClassificationModule
 from omegaconf import OmegaConf
 from torch.amp import GradScaler, autocast
-from torch.distributed import destroy_process_group
+from torch.distributed import destroy_process_group  # type: ignore
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
@@ -24,6 +24,7 @@ from tqdm import tqdm
 
 from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.evaluate import evaluate
+from scaffolding_v3.model.classification import ClassificationModule
 from scaffolding_v3.plot.plotter import Plotter
 from scaffolding_v3.util.ddp import ddp_setup
 from scaffolding_v3.util.instantiate import Experiment
@@ -168,7 +169,7 @@ class Trainer:
             wandb.watch(
                 self.model,
                 log="all",
-                log_freq=self.cfg.output.gradient_log_freq,
+                log_freq=self.cfg.output.gradient_log_frequency,
             )
 
         logger.info("Starting training")
@@ -179,7 +180,12 @@ class Trainer:
             step_per_iter=self.cfg.data.trainloader.batch_size,
         )
 
-        train_iter = tqdm(step_iterator, disable=not self.cfg.output.use_tqdm)
+        train_iter = tqdm(
+            step_iterator,
+            disable=not self.cfg.output.use_tqdm,
+            unit="samples",
+            unit_scale=self.cfg.data.trainloader.batch_size,
+        )
 
         self.model.train()
         dry_run = self.cfg.execution.dry_run
@@ -187,13 +193,13 @@ class Trainer:
         for batch in self.profiler.profiled_iter("dataload", train_iter):
             self._train_step(batch)
 
-            if self.state.step % self.cfg.output.val_frequency == 0:
+            if self._is_due(self.cfg.output.val_frequency):
                 self._validation_step()
 
-            if self.state.step % self.cfg.output.checkpoint_frequency == 0:
+            if self._is_due(self.cfg.output.checkpoint_frequency):
                 self._save_checkpoint("latest")
 
-            if self.plotter and self.state.step % self.cfg.output.plot_frequency == 0:
+            if self.plotter and self._is_due(self.cfg.output.plot_frequency):
                 self.plotter.plot_prediction(self.model, self.state.samples_seen)
 
             if dry_run:
@@ -232,6 +238,10 @@ class Trainer:
                 self.scheduler.step()
 
         self.state.samples_seen += features.size(0)
+
+    def _is_due(self, frequency: int) -> bool:
+        step_frequency = math.ceil(frequency / self.cfg.data.trainloader.batch_size)
+        return self.state.step % step_frequency == 0
 
     def _validation_step(self) -> None:
         s = self.state

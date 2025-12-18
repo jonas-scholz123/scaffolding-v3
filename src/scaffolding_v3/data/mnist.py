@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 from scaffolding_v3.config import Paths
 
 
-class MnistDataset(Dataset):
+class MnistDataset(Dataset[tuple[torch.Tensor, int]]):
     def __init__(
         self,
         paths: Paths,
@@ -42,5 +42,5 @@ class MnistDataset(Dataset):
     def __len__(self):
         return len(self.dataset)
 
-    def __getitem__(self, idx):
-        return self.dataset[idx]
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        return self.dataset[index]

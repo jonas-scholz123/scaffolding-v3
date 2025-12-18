@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from hydra.core.config_store import ConfigStore
@@ -17,9 +17,9 @@ class Paths:
 
 @dataclass
 class DataConfig:
-    dataset: dict
-    trainloader: dict
-    testloader: dict
+    dataset: Any
+    trainloader: Any
+    testloader: Any
     cache: bool
     in_channels: int
     num_classes: int

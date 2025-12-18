@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 from scaffolding_v3.config import Paths
 
 
-class Cifar10Dataset(Dataset):
+class Cifar10Dataset(Dataset[tuple[torch.Tensor, int]]):
     def __init__(
         self,
         paths: Paths,
@@ -45,8 +45,8 @@ class Cifar10Dataset(Dataset):
             )
             self.dataset = train if split == Split.TRAIN else val
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.dataset)
 
-    def __getitem__(self, idx):
-        return self.dataset[idx]
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        return self.dataset[index]

@@ -2,7 +2,7 @@ import os
 
 import torch
 import torch.optim.lr_scheduler
-from torch.distributed import init_process_group
+from torch.distributed import init_process_group  # type: ignore
 
 
 def ddp_setup(rank: int, world_size: int):
