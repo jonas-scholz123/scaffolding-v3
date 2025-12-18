@@ -7,7 +7,7 @@ from scaffolding_v3.model.classification import ClassificationModule
 @torch.no_grad()
 def evaluate(
     model: ClassificationModule,
-    val_loader: DataLoader,
+    dataloader: DataLoader,
     dry_run: bool = False,
 ) -> dict[str, float]:
     model.eval()
@@ -16,7 +16,7 @@ def evaluate(
     total = 0
     device = next(model.parameters()).device
 
-    for data, target in val_loader:
+    for data, target in dataloader:
         data, target = data.to(device), target.to(device)
         output = model.predict(data)
         val_loss += model.loss_fn(output, target).item()
@@ -27,5 +27,5 @@ def evaluate(
         if dry_run:
             break
     if total == 0:
-        return {"val_loss": float("inf"), "val_accuracy": 0.0}
-    return {"val_loss": val_loss / total, "val_accuracy": correct / total}
+        return {"loss": float("inf"), "_accuracy": 0.0}
+    return {"loss": val_loss / total, "accuracy": correct / total}

@@ -51,7 +51,8 @@ class Experiment:
         This is useful for exploration where you want to have easy access to the
         instantiated objects used for training and evaluation.
         """
-        generator = Generator(device="cpu").manual_seed(cfg.execution.seed)
+        seed = cfg.execution.seed
+        generator = Generator(device="cpu").manual_seed(seed)
 
         logger.info("Instantiating dependencies")
 
@@ -60,7 +61,7 @@ class Experiment:
         testset = make_dataset(cfg.data, Split.TEST, generator)
 
         if gpu_id is not None:
-            train_sampler = DistributedSampler(trainset, shuffle=True)
+            train_sampler = DistributedSampler(trainset, shuffle=True, seed=seed)
             val_sampler = DistributedSampler(valset, shuffle=False)
             test_sampler = DistributedSampler(testset, shuffle=False)
         else:

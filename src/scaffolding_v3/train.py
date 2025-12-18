@@ -103,6 +103,7 @@ class Trainer:
         optimizer: Optimizer,
         train_loader: DataLoader,
         val_loader: DataLoader,
+        test_loader: DataLoader | None,
         generator: torch.Generator,
         experiment_path: ExperimentPath,
         checkpoint_manager: CheckpointManager,
@@ -124,6 +125,13 @@ class Trainer:
         self.device = torch.device(cfg.runtime.device)
 
         self.state = initial_state
+        if test_loader is None:
+            logger.warning(
+                "No test loader provided, using validation loader for final eval"
+            )
+            self.test_loader = val_loader
+        else:
+            self.test_loader = test_loader
 
         self._init_wandb()
         self.metric_logger = WandbLogger(
@@ -134,13 +142,15 @@ class Trainer:
 
     def _init_wandb(self) -> None:
         if self.cfg.output.use_wandb:
-            wandb.init(
+            run = wandb.init(
                 project=self.cfg.output.wandb_project,
                 config=OmegaConf.to_container(self.cfg),  # type: ignore
                 dir=self.cfg.output.out_dir,
                 name=self.experiment_path.name,
                 id=self.experiment_path.name,
             )
+            # For all metrics, use samples seen as the x-axis.
+            run.define_metric("*", step_metric="samples_seen")
 
     @staticmethod
     def from_experiment(exp: Experiment, cfg: Config) -> "Trainer":
@@ -150,6 +160,7 @@ class Trainer:
             exp.optimizer,
             exp.train_loader,
             exp.val_loader,
+            exp.test_loader,
             exp.generator,
             exp.experiment_path,
             exp.checkpoint_manager,
@@ -207,7 +218,8 @@ class Trainer:
 
             self.state.step += 1
 
-        logger.success("Finished training")
+        logger.success("Finished training. Starting final evaluation...")
+        self._final_eval()
 
     def _train_step(self, batch: tuple[torch.Tensor, torch.Tensor]) -> None:
         p = self.profiler
@@ -227,7 +239,7 @@ class Trainer:
 
         with p.profile("backward"):
             batch_loss.backward()
-            self.metric_logger.log({"train_loss": batch_loss.item()})
+            self.metric_logger.log({"loss": batch_loss.item()}, prefix="train")
 
         with p.profile("optimizer.step"):
             self.optimizer.step()
@@ -248,8 +260,8 @@ class Trainer:
 
         self.model.eval()
         val_metrics = self.val_epoch()
-        s.val_loss = val_metrics["val_loss"]
-        self.metric_logger.log(val_metrics)
+        s.val_loss = val_metrics["loss"]
+        self.metric_logger.log(val_metrics, prefix="val")
 
         if s.val_loss < s.best_val_loss:
             logger.success("New best val loss: {}", s.val_loss)
@@ -272,15 +284,26 @@ class Trainer:
                 self.state,
             )
 
-    def val_epoch(self) -> dict[str, float]:
+    def _final_eval(self) -> None:
+        self.model.eval()
+        final_metrics = self.val_epoch(final=True)
+        self.metric_logger.log(final_metrics, prefix="test")
+        logger.info("Final evaluation metrics: {}", final_metrics)
+
+    def val_epoch(self, final: bool = False) -> dict[str, float]:
         with autocast(
             device_type=self.cfg.runtime.device,
             dtype=torch.float16,
             enabled=self.cfg.execution.use_amp,
         ):
+            if final:
+                dataloader = self.test_loader
+            else:
+                dataloader = self.val_loader
+
             result = evaluate(
                 self.model,
-                self.val_loader,
+                dataloader,
                 self.cfg.execution.dry_run,
             )
             return result
