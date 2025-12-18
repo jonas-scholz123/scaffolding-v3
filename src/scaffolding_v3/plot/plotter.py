@@ -2,6 +2,7 @@
 from typing import Optional, Sequence
 
 import matplotlib.pyplot as plt
+import torch
 from matplotlib.figure import Figure
 from mlbnb.paths import ExperimentPath
 from torch.utils.data import Dataset
@@ -32,6 +33,7 @@ class Plotter:
         if fig:
             self._save_or_show(fig, f"{samples_seen}_prediction.png")
 
+    @torch.no_grad()
     def _plot(self, model: ClassificationModule) -> Optional[Figure]:
         fig, axs = plt.subplots(
             1, self._num_samples, figsize=(10, 5 * self._num_samples), squeeze=False
