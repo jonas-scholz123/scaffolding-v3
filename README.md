@@ -54,6 +54,7 @@ Then:
 pdm venv create
 source .venv/bin/activate
 pdm install
+pre-commit install
 ```
 
 Finally, for optional but recommended W&B integration, set your API key:
