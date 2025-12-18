@@ -1,3 +1,4 @@
+import math
 import sys
 from typing import Optional
 
@@ -179,7 +180,12 @@ class Trainer:
             step_per_iter=self.cfg.data.trainloader.batch_size,
         )
 
-        train_iter = tqdm(step_iterator, disable=not self.cfg.output.use_tqdm)
+        train_iter = tqdm(
+            step_iterator,
+            disable=not self.cfg.output.use_tqdm,
+            unit="samples",
+            unit_scale=self.cfg.data.trainloader.batch_size,
+        )
 
         self.model.train()
         dry_run = self.cfg.execution.dry_run
@@ -187,13 +193,13 @@ class Trainer:
         for batch in self.profiler.profiled_iter("dataload", train_iter):
             self._train_step(batch)
 
-            if self.state.step % self.cfg.output.val_frequency == 0:
+            if self._is_due(self.cfg.output.val_frequency):
                 self._validation_step()
 
-            if self.state.step % self.cfg.output.checkpoint_frequency == 0:
+            if self._is_due(self.cfg.output.checkpoint_frequency):
                 self._save_checkpoint("latest")
 
-            if self.plotter and self.state.step % self.cfg.output.plot_frequency == 0:
+            if self.plotter and self._is_due(self.cfg.output.plot_frequency):
                 self.plotter.plot_prediction(self.model, self.state.samples_seen)
 
             if dry_run:
@@ -232,6 +238,10 @@ class Trainer:
                 self.scheduler.step()
 
         self.state.samples_seen += features.size(0)
+
+    def _is_due(self, frequency: int) -> bool:
+        step_frequency = math.ceil(frequency / self.cfg.data.trainloader.batch_size)
+        return self.state.step % step_frequency == 0
 
     def _validation_step(self) -> None:
         s = self.state
