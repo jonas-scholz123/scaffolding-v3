@@ -64,7 +64,7 @@ def main(gpu_id: int | None, world_size: int) -> float:
             wandb.finish()
 
 
-def train_loop(cfg: Config, gpu_id: int | None = None):
+def train_loop(cfg: Config, gpu_id: int | None = None) -> float:
     if cfg.resume:
         path = cfg.paths.output / cfg.resume
         path = ExperimentPath.from_path(path)
@@ -158,9 +158,7 @@ class Trainer:
         )
 
     def train_loop(self) -> None:
-        s = self.state
-
-        if s.samples_seen >= self.cfg.execution.num_train_samples:
+        if self.state.samples_seen >= self.cfg.execution.num_train_samples:
             logger.info("Run has concluded")
             return
 
@@ -196,12 +194,12 @@ class Trainer:
                 self._save_checkpoint("latest")
 
             if self.plotter and self.state.step % self.cfg.output.plot_frequency == 0:
-                self.plotter.plot_prediction(self.model, s.samples_seen)
+                self.plotter.plot_prediction(self.model, self.state.samples_seen)
 
             if dry_run:
                 break
 
-            s.step += 1
+            self.state.step += 1
 
         logger.success("Finished training")
 
