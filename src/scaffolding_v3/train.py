@@ -14,10 +14,9 @@ from mlbnb.metric_logger import WandbLogger
 from mlbnb.paths import ExperimentPath
 from mlbnb.profiler import WandbProfiler
 from mlbnb.rand import seed_everything
-from model.classification import ClassificationModule
 from omegaconf import OmegaConf
 from torch.amp import GradScaler, autocast
-from torch.distributed import destroy_process_group
+from torch.distributed import destroy_process_group  # type: ignore
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
@@ -25,6 +24,7 @@ from tqdm import tqdm
 
 from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.evaluate import evaluate
+from scaffolding_v3.model.classification import ClassificationModule
 from scaffolding_v3.plot.plotter import Plotter
 from scaffolding_v3.util.ddp import ddp_setup
 from scaffolding_v3.util.instantiate import Experiment
@@ -169,7 +169,7 @@ class Trainer:
             wandb.watch(
                 self.model,
                 log="all",
-                log_freq=self.cfg.output.gradient_log_freq,
+                log_freq=self.cfg.output.gradient_log_frequency,
             )
 
         logger.info("Starting training")

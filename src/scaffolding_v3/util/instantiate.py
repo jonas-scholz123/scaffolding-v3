@@ -10,7 +10,6 @@ from mlbnb.checkpoint import CheckpointManager, TrainerState
 from mlbnb.namegen import gen_run_name
 from mlbnb.paths import ExperimentPath
 from mlbnb.types import Split
-from model.classification import ClassificationModule
 from torch import Generator
 from torch.nn import Module
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -18,6 +17,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, DistributedSampler, RandomSampler
 
+from scaffolding_v3.model.classification import ClassificationModule
 from scaffolding_v3.config import Config, init_config
 from scaffolding_v3.data.data import make_dataset
 from scaffolding_v3.plot.plotter import Plotter
