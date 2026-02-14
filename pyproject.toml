@@ -31,7 +31,12 @@ license = { text = "MIT" }
 [tool.ty.environment]
 root = ["./src"]
 
-[tool.pdm.dev-dependencies]
-dev = [
-    "-e file:///${PROJECT_ROOT}/../mlbnb#egg=mlbnb",
-]
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv.sources]
+mlbnb = { path = "../mlbnb", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

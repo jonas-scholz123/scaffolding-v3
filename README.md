@@ -40,20 +40,19 @@ It uses [the mlbnb library](https://pypi.org/project/mlbnb/#description) under t
 
 ### Installation
 
-We thoroughly reccommend using [pdm](https://pdm-project.org/en/latest/) as your dependency management tool, and scaffolding is set up around it.
+We thoroughly recommend using [uv](https://docs.astral.sh/uv/) as your dependency management tool, and scaffolding is set up around it.
 
-To install pdm (Linux/Mac):
+To install uv (Linux/Mac):
 
 ```bash
-curl -sSL https://pdm-project.org/install-pdm.py | python3 -
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 Then:
 
 ```bash
-pdm venv create
+uv sync
 source .venv/bin/activate
-pdm install
 pre-commit install
 ```
 
